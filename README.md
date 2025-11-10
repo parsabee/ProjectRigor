@@ -6,6 +6,28 @@ This project builds a comprehensive **robotics + animation engine** in Rust, tar
 
 ## Current Status
 
+✅ **Phong Lighting Complete**
+- Vertex normals for cubes and spheres (proper outward-facing normals per face)
+- Phong shading model (ambient + diffuse + specular components)
+- Directional light with configurable direction, color, and intensities
+- Blinn-Phong specular highlights with adjustable shininess
+- Light uniforms passed to fragment shader
+- 5 unit tests for lighting (normals, light properties, orthogonality)
+
+✅ **Camera Controls Complete**
+- WASD + QE keyboard movement (forward/backward, strafe left/right, up/down)
+- Mouse click-and-drag rotation (horizontal yaw, vertical pitch)
+- Smooth camera rotation with configurable sensitivity
+- Pitch clamping to prevent gimbal lock
+- 6 unit tests for camera rotation (horizontal, vertical, clamping, distance preservation)
+
+✅ **Sphere Rendering Complete**
+- UV sphere mesh generation with configurable segments/rings
+- Mixed cube and sphere rendering in single scene
+- Shape-based vertex buffer selection (RenderShape enum)
+- Physics integration with sphere colliders
+- 5 additional unit tests for sphere rendering
+
 ✅ **ECS Architecture Complete**
 - Full Entity Component System integration with `hecs`
 - Component types: TransformComponent, PhysicsBodyComponent, RenderComponent
@@ -15,20 +37,23 @@ This project builds a comprehensive **robotics + animation engine** in Rust, tar
 - 9 comprehensive ECS unit tests
 
 ✅ **Physics-Rendering Integration Complete**
-- Real-time physics simulation with 5 falling cubes + static ground plane
-- ECS-driven rendering with per-entity colors from RenderComponent
+- Real-time physics simulation with 8 dynamic objects + static ground plane
+- ECS-driven rendering with per-entity colors and shapes from RenderComponent
 - Automatic transform updates for dynamic entities only
 - Collision detection and gravity working seamlessly with visuals
 - Physics bodies properly synchronized with ECS transforms
+- Support for both box and sphere colliders
 
 ✅ **Rendering System Complete**
 - 3D perspective camera with view/projection matrices
-- Full cube rendering with depth testing
+- Cube and sphere geometry rendering with normals
+- Shape-based rendering system (RenderShape::Cube, RenderShape::Sphere)
 - Per-entity color system driven by ECS components
 - Metal compute pipeline with runtime shader compilation
-- Vertex attributes and uniforms system
+- Vertex attributes (position, normal, color) and uniforms system
 - Efficient multi-object rendering with per-object colored vertex buffers
-- 13 comprehensive renderer unit tests
+- Phong lighting with ambient, diffuse, and specular components
+- 23 comprehensive renderer unit tests
 
 ✅ **Foundation Complete**
 - Window management with `winit`
@@ -36,8 +61,8 @@ This project builds a comprehensive **robotics + animation engine** in Rust, tar
 - Modular architecture (lib + bin structure)
 - Core math module with `glam` (transforms, vectors, quaternions) - 6 unit tests
 - Physics simulation with `rapier3d` (rigid bodies, collisions, gravity) - 5 unit tests
-- Camera system with perspective projection - 4 unit tests
-- **Total: 37 passing unit tests**
+- Camera system with perspective projection and rotation - 16 unit tests
+- **Total: 58 passing unit tests**
 
 ## Project Goals
 
@@ -102,21 +127,27 @@ This project builds a comprehensive **robotics + animation engine** in Rust, tar
 * [x] Integrated `metal-rs` for GPU rendering
 * [x] Metal layer attachment and drawable management
 * [x] Runtime shader compilation (vertex + fragment shaders)
-* [x] Vertex descriptor with position and color attributes
+* [x] Vertex descriptor with position, normal, and color attributes
 * [x] Camera system with perspective projection
 * [x] Depth buffer and depth testing
 * [x] Model-View-Projection matrix pipeline
 * [x] Uniforms buffer for passing matrices to shaders
-* [x] Full 3D cube rendering with 6 colored faces
+* [x] Full 3D cube rendering with 6 colored faces and normals
 * [x] Multi-object rendering with ECS-driven colors
 * [x] Per-entity colored vertex buffers
-* [x] Render method accepting (Transform, color) tuples from ECS
-* [x] 13 comprehensive unit tests for renderer components
+* [x] Render method accepting (Transform, color, shape) tuples from ECS
+* [x] Sphere geometry rendering with UV sphere algorithm and normals
+* [x] Shape-based rendering system (Cube and Sphere support)
+* [x] Phong lighting model (ambient + diffuse + specular)
+* [x] Directional light with configurable properties
+* [x] Light uniforms buffer for shader lighting calculations
+* [x] 23 comprehensive unit tests for renderer components
 * [ ] Visual debug for forces, joint limits, and sensor rays
 * [ ] Wireframe and debug rendering modes
 * [ ] Instanced rendering for performance optimization
-* [ ] Sphere rendering (RenderShape::Sphere support)
-* [ ] Material system with lighting
+* [ ] Shadow mapping for realistic shadows
+* [ ] Advanced materials system (PBR, metallic/roughness)
+* [ ] Additional geometry types (cylinder, capsule, etc.)
 
 ### 8. Sensor / Perception Module
 
@@ -124,10 +155,14 @@ This project builds a comprehensive **robotics + animation engine** in Rust, tar
 * [ ] Perform raycasting and collision queries with `rapier`
 * [ ] Optional ML perception integration
 
-### 9. Event / Input Module
+### 9. Event / Input Module ✅ **COMPLETED**
 
 * [x] Integrated `winit` for windowing and input
 * [x] Basic event handling (close, resize, redraw)
+* [x] Keyboard input tracking with WASD + QE movement
+* [x] Mouse button state tracking
+* [x] Mouse drag detection and delta calculation
+* [x] Camera rotation with mouse click-and-drag
 * [ ] Feed input to robots, adjust trajectories, and interact with simulations
 
 ### 10. AI / Planning Module (Optional)
@@ -145,13 +180,15 @@ This project builds a comprehensive **robotics + animation engine** in Rust, tar
 5. ✅ **3D Camera System** - Perspective projection, view matrices, depth testing
 6. ✅ **Physics-Rendering Integration** - Render rapier bodies dynamically with colors
 7. ✅ **ECS Architecture** (`hecs`) - Entity-Component-System for object management
-8. **Skeleton & FK/IK layer** - Articulated structures with joints - **NEXT**
-9. Control system (PID, trajectory following)
-10. Enhanced rendering (instancing, materials, lighting, sphere geometry)
-11. Motion / Animation integration (keyframes, splines)
-12. Sensors & perception (virtual cameras, raycasting)
-13. User input and interactive controls
-14. Optional AI / planning
+8. ✅ **Sphere Rendering** - UV sphere geometry with shape-based rendering
+9. ✅ **Camera Controls** - WASD movement + mouse look for interactive navigation
+10. ✅ **Phong Lighting** - Vertex normals, ambient/diffuse/specular, directional light
+11. **Skeleton & FK/IK layer** - Articulated structures with joints - **NEXT**
+12. Control system (PID, trajectory following)
+13. Enhanced rendering (instancing, materials, shadows)
+14. Motion / Animation integration (keyframes, splines)
+15. Sensors & perception (virtual cameras, raycasting)
+16. Optional AI / planning
 
 ---
 
@@ -168,19 +205,19 @@ This project builds a comprehensive **robotics + animation engine** in Rust, tar
 src/
 ├── lib.rs          # Library root, public API exports
 ├── main.rs         # Application entry point (minimal)
-├── app.rs          # Application state with ECS World and event handling
-├── camera.rs       # Camera system: view/projection matrices (4 tests)
+├── app.rs          # Application state with ECS World, keyboard/mouse input
+├── camera.rs       # Camera system: view/projection matrices, movement, rotation (16 tests)
 ├── ecs.rs          # ECS components and tags (9 tests)
 ├── math.rs         # Math module: Transform, vectors, quaternions (6 tests)
 ├── physics.rs      # Physics module: PhysicsWorld, rigid bodies, colliders (5 tests)
-└── renderer.rs     # Metal rendering: shaders, pipeline, uniforms (13 tests)
+└── renderer.rs     # Metal rendering: shaders, pipeline, normals, lighting (23 tests)
 shaders/
-└── cube.metal      # Metal shader code (vertex + fragment)
+└── cube.metal      # Metal shader code with Phong lighting (vertex + fragment)
 examples/
 ├── math_test.rs    # Interactive math module demonstration
 └── physics_test.rs # Physics simulation demonstration
 
-Total: 37 unit tests across all modules
+Total: 58 unit tests across all modules
 ```
 
 ## Building
@@ -199,8 +236,14 @@ cargo test
 ## Running
 
 ```bash
-# Run the main application (shows 5 colored cubes falling with physics)
+# Run the main application (shows 5 cubes + 3 spheres falling with physics)
 cargo run
+
+# Controls:
+# - W/S: Move camera forward/backward
+# - A/D: Strafe camera left/right  
+# - Q/E: Move camera down/up
+# - Left click + drag: Rotate camera (yaw/pitch)
 
 # Run the math test example
 cargo run --example math_test
@@ -211,28 +254,58 @@ cargo run --example physics_test
 
 ## What's Working Now
 
+- **Phong Lighting**: Realistic lighting with ambient, diffuse, and specular components; directional light from upper left
+- **Normal-Based Shading**: Proper vertex normals on cubes (per-face) and spheres (radial); lighting responds to surface orientation
+- **Interactive Camera**: Full WASD + QE movement and mouse click-and-drag rotation with pitch clamping
+- **Sphere Rendering**: UV sphere mesh generation with 20 segments/rings, smooth geometry with accurate normals
+- **Shape-Based Rendering**: RenderShape enum supporting Cube and Sphere with automatic vertex buffer selection
+- **Mixed Geometry Scene**: Cubes and spheres rendered in same scene with proper physics and lighting
 - **ECS Architecture**: Complete Entity Component System with hecs managing all game objects
-- **Component-Based Design**: TransformComponent, PhysicsBodyComponent, RenderComponent with color
+- **Component-Based Design**: TransformComponent, PhysicsBodyComponent, RenderComponent with color and shape
 - **Entity Filtering**: StaticTag and DynamicTag for separating static/dynamic objects
 - **Physics-ECS Integration**: Physics updates only dynamic entities, static ground remains fixed
-- **Rendering-ECS Integration**: Renderer reads transforms and colors directly from ECS components
-- **Multi-Object Scene**: 1 static gray ground plane (50x0.1x50) + 5 colored dynamic cubes
+- **Rendering-ECS Integration**: Renderer reads transforms, colors, and shapes directly from ECS components
+- **Multi-Object Scene**: 1 static gray ground plane + 5 colored cubes + 3 colored spheres with realistic lighting
 - **Real-Time Simulation**: Physics steps at 60Hz, updates ECS, extracts render data each frame
-- **3D Rendering**: Fully functional Metal-based renderer with depth testing
-- **Camera System**: Perspective projection from position (8, 4, 12) looking at scene center
-- **Physics**: Complete rapier3d integration with gravity, collisions, and rigid bodies
+- **3D Rendering**: Fully functional Metal-based renderer with depth testing and Phong shading
+- **Camera System**: Perspective projection with configurable FOV, movement, and rotation
+- **Physics**: Complete rapier3d integration with gravity, collisions, box and sphere colliders
 - **Math**: Transform types with glam for vectors, quaternions, and matrices
-- **Comprehensive Testing**: 37 unit tests covering all core systems
+- **Comprehensive Testing**: 58 unit tests covering all core systems including lighting
 
 ## Next Steps
 
-1. **Robot Skeleton Module**: Build articulated structures with joints, bones, and FK/IK
-2. **Joint Constraints**: Implement hinge, ball-socket, and prismatic joints with limits
-3. **Control Systems**: PID controllers for robot actuators and trajectory following
-4. **Enhanced Rendering**: Sphere geometry, instanced rendering, materials, and lighting
-5. **User Input**: Keyboard/mouse controls to interact with physics objects and camera
-6. **Animation System**: Keyframe interpolation and spline-based trajectories
-7. **Sensors**: Virtual cameras, raycasting, and collision queries for perception
+### 🤖 Major Feature: Robot Skeleton Module (5-10 hours) - **RECOMMENDED NEXT**
+**Start the main robotics work:**
+- Define joint types (revolute/hinge, spherical, prismatic)
+- Create bone/link structures
+- Implement Forward Kinematics (FK) - compute positions from joint angles
+- Implement Inverse Kinematics (IK) - solve for joint angles from target position
+- Connect to rapier3d with joint constraints
+- Add joint limits and actuator interfaces
+- Build simple 2-3 link arm as proof of concept
+
+**Benefits:**
+- Core robotics functionality
+- Visual feedback with existing camera controls
+- Foundation for animation and control systems
+- Can test with mouse interaction (click to set IK target)
+
+### 🎨 Enhancement: Rendering Improvements (3-5 hours)
+**Can be done in parallel or after skeleton:**
+- Instanced rendering for performance with many objects
+- Basic Phong lighting (directional light + ambient)
+- Material system (metallic, roughness properties)
+- Wireframe debug mode for skeleton visualization
+- Additional geometry (cylinder for bones, capsule for links)
+
+### 🎮 Quality of Life: Additional Features
+- **Enhanced Camera** - Scroll wheel zoom, camera smoothing/damping, orbit mode
+- **Control Systems** - PID controllers for smooth joint movement
+- **Animation System** - Keyframe interpolation for pre-programmed motions
+- **Sensors** - Raycasting, virtual cameras for perception
+- **UI/Debug Display** - ImGui integration for parameter tweaking
+- **Entity Management** - Runtime spawning/despawning, save/load scenes
 
 ## Dependencies
 

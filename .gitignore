@@ -1,0 +1,65 @@
+# Rust
+/target/
+**/*.rs.bk
+*.pdb
+Cargo.lock
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+.apdisk
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.*.swp
+.*.swo
+
+# Debug/Release artifacts
+debug/
+release/
+
+# OS generated files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Profiling and benchmarking
+*.profraw
+perf.data
+perf.data.old
+flamegraph.svg
+
+# Backup files
+*.bak
+*.tmp
+*.temp
+
+# Metal shader compilation artifacts
+*.metallib
+*.air
+
+# Build artifacts
+*.o
+*.so
+*.dylib
+*.dll
+*.exe
