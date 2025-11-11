@@ -112,3 +112,14 @@ pub use glam;
 pub use hecs;
 // Re-export rapier for external use
 pub use rapier3d;
+
+/// Rendering mode for the application
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RenderingMode {
+    /// Hardware-accelerated ray tracing using Metal's ray tracing API
+    HardwareRayTracing,
+    /// Software ray tracing (CPU-based)
+    SoftwareRayTracing,
+    /// Traditional rasterization pipeline
+    Rasterization,
+}

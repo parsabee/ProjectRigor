@@ -18,6 +18,7 @@ use crate::camera::Camera;
 use cocoa::base::id as cocoa_id;
 use cocoa::foundation::NSRect;
 use core_graphics_types::geometry::CGSize;
+use glam::Vec3;
 use metal::{Device, MTLPixelFormat, MetalLayer, MTLResourceOptions};
 use objc::runtime::YES;
 use objc::{msg_send, sel, sel_impl};
@@ -25,76 +26,51 @@ use raw_window_handle::HasWindowHandle;
 use std::mem;
 use winit::window::Window;
 
-/// Vertex data with position, normal, and color.
+/// Configuration for renderer initialization.
 ///
-/// Each vertex contains:
-/// - `position`: 3D coordinates in model space
-/// - `normal`: Surface normal for lighting calculations
-/// - `color`: Per-vertex RGB color (0.0-1.0)
-///
-/// Total size: 36 bytes (3 * [f32; 3])
-#[repr(C)]
-#[derive(Debug, Clone, Copy)]
-struct Vertex {
-    position: [f32; 3],
-    normal: [f32; 3],
-    color: [f32; 3],
+/// Contains camera and lighting parameters that can be customized
+/// when creating a new renderer instance.
+pub struct RendererConfig {
+    /// Initial camera position
+    pub camera_position: Vec3,
+    /// Initial camera look-at target
+    pub camera_target: Vec3,
+    /// Phong lighting parameters
+    pub lighting: crate::scene::LightUniforms,
+    /// Rendering mode (rasterization, software ray tracing, or hardware ray tracing)
+    pub render_mode: crate::RenderingMode,
 }
 
-/// Uniform data for transformation matrices.
-///
-/// Passed to vertex shader for transforming vertices to clip space.
-#[repr(C)]
-struct Uniforms {
-    model_view_projection: [[f32; 4]; 4],
-}
-
-/// Lighting parameters for Phong shading.
-///
-/// Contains directional light properties:
-/// - `direction`: Light direction vector (normalized)
-/// - `color`: Light RGB color
-/// - `ambient_intensity`: Ambient light strength (0.0-1.0)
-/// - `diffuse_intensity`: Diffuse light strength (0.0-1.0)
-/// - `specular_intensity`: Specular highlight strength (0.0-1.0)
-/// - `shininess`: Specular power/sharpness (higher = sharper highlights)
-///
-/// Total size: 48 bytes (with padding for Metal alignment)
-#[repr(C)]
-struct LightUniforms {
-    direction: [f32; 3],
-    _padding1: f32,
-    color: [f32; 3],
-    _padding2: f32,
-    ambient_intensity: f32,
-    diffuse_intensity: f32,
-    specular_intensity: f32,
-    shininess: f32,
-}
-
-impl Default for LightUniforms {
+impl Default for RendererConfig {
     fn default() -> Self {
         Self {
-            direction: [-0.5, -1.0, -0.3], // Light from upper left
-            _padding1: 0.0,
-            color: [1.0, 1.0, 1.0], // White light
-            _padding2: 0.0,
-            ambient_intensity: 0.3,
-            diffuse_intensity: 0.7,
-            specular_intensity: 0.5,
-            shininess: 32.0,
+            camera_position: Vec3::new(8.0, 4.0, 12.0), // Match Camera::new() default
+            camera_target: Vec3::new(6.0, 0.0, 0.0),    // Match Camera::new() default
+            lighting: crate::scene::LightUniforms::default(),
+            render_mode: crate::RenderingMode::Rasterization,
         }
     }
 }
 
+/// Parameters for compute shader ray tracing.
+#[repr(C)]
+struct RayTracingParams {
+    camera_position: [f32; 3],
+    aspect_ratio: f32,
+    camera_target: [f32; 3],
+    triangle_count: f32,
+}
+
 pub struct MetalRenderer {
-    _device: Device,
+    device: Device,
     command_queue: metal::CommandQueue,
     layer: MetalLayer,
     pipeline_state: metal::RenderPipelineState,
     depth_stencil_state: metal::DepthStencilState,
     light_buffer: metal::Buffer,
     camera: Camera,
+    raytracing_pipeline: metal::ComputePipelineState,
+    render_mode: crate::RenderingMode,
 }
 
 impl MetalRenderer {
@@ -105,7 +81,7 @@ impl MetalRenderer {
         
         for &index in indices {
             let v = &vertices[index as usize];
-            expanded_vertices.push(Vertex {
+            expanded_vertices.push(crate::scene::Vertex {
                 position: [v[0], v[1], v[2]],
                 normal: [v[3], v[4], v[5]],
                 color: [v[6], v[7], v[8]],
@@ -114,12 +90,12 @@ impl MetalRenderer {
         
         self.layer.device().new_buffer_with_data(
             expanded_vertices.as_ptr() as *const _,
-            (expanded_vertices.len() * mem::size_of::<Vertex>()) as u64,
+            (expanded_vertices.len() * mem::size_of::<crate::scene::Vertex>()) as u64,
             MTLResourceOptions::CPUCacheModeDefaultCache,
         )
     }
 
-    pub fn new(window: &Window) -> Self {
+    pub fn new(window: &Window, config: RendererConfig) -> Self {
         let device = Device::system_default().expect("No Metal device found");
         let command_queue = device.new_command_queue();
         
@@ -168,7 +144,7 @@ impl MetalRenderer {
         
         // Layout
         let layout = vertex_descriptor.layouts().object_at(0).unwrap();
-        layout.set_stride((mem::size_of::<Vertex>()) as u64);
+        layout.set_stride((mem::size_of::<crate::scene::Vertex>()) as u64);
         layout.set_step_function(metal::MTLVertexStepFunction::PerVertex);
         
         let pipeline_descriptor = metal::RenderPipelineDescriptor::new();
@@ -194,27 +170,36 @@ impl MetalRenderer {
         depth_stencil_descriptor.set_depth_write_enabled(true);
         let depth_stencil_state = device.new_depth_stencil_state(&depth_stencil_descriptor);
         
-        // Create light buffer with default lighting
-        let light_data = LightUniforms::default();
+        // Create light buffer with configured lighting
         let light_buffer = device.new_buffer_with_data(
-            &light_data as *const LightUniforms as *const _,
-            std::mem::size_of::<LightUniforms>() as u64,
+            &config.lighting as *const crate::scene::LightUniforms as *const _,
+            std::mem::size_of::<crate::scene::LightUniforms>() as u64,
             MTLResourceOptions::CPUCacheModeDefaultCache,
         );
         
-        // Create camera
+        // Load ray tracing compute shader
+        let raytracing_source = include_str!("../shaders/raytracing.metal");
+        let raytracing_library = device.new_library_with_source(raytracing_source, &metal::CompileOptions::new()).unwrap();
+        let raytracing_function = raytracing_library.get_function("raytrace_kernel", None).unwrap();
+        let raytracing_pipeline = device.new_compute_pipeline_state_with_function(&raytracing_function).unwrap();
+        
+        // Create camera with configured position and target
         let size = window.inner_size();
         let aspect_ratio = size.width as f32 / size.height as f32;
-        let camera = Camera::new(aspect_ratio);
+        let mut camera = Camera::new(aspect_ratio);
+        camera.set_position(config.camera_position);
+        camera.set_target(config.camera_target);
         
         Self {
-            _device: device,
+            device,
             command_queue,
             layer,
             pipeline_state,
             depth_stencil_state,
             light_buffer,
             camera,
+            raytracing_pipeline,
+            render_mode: config.render_mode,
         }
     }
     
@@ -241,7 +226,29 @@ impl MetalRenderer {
         &self.camera
     }
     
-    /// Renders a scene by extracting its render data and drawing all entities.
+    /// Renders a scene using the configured rendering mode.
+    ///
+    /// Dispatches to the appropriate rendering method based on the render mode:
+    /// - `Rasterization`: Uses traditional GPU rasterization pipeline
+    /// - `SoftwareRayTracing`: Uses compute shader ray tracing
+    /// - `HardwareRayTracing`: Uses compute shader ray tracing (for now, same as software)
+    ///
+    /// # Arguments
+    ///
+    /// * `scene` - The scene to render
+    pub fn render(&mut self, scene: &crate::scene::Scene) {
+        match self.render_mode {
+            crate::RenderingMode::Rasterization => self.render_rasterization(scene),
+            crate::RenderingMode::SoftwareRayTracing => self.render_software_raytracing(scene),
+            crate::RenderingMode::HardwareRayTracing => {
+                // TODO: Implement hardware ray tracing with Metal's native API
+                // For now, use software ray tracing as fallback
+                self.render_software_raytracing(scene)
+            }
+        }
+    }
+    
+    /// Renders a scene using traditional rasterization.
     ///
     /// This is a convenience method that calls `scene.get_render_data()` and then
     /// delegates to `render_with_transforms_and_colors()`.
@@ -249,7 +256,7 @@ impl MetalRenderer {
     /// # Arguments
     ///
     /// * `scene` - The scene to render
-    pub fn render(&mut self, scene: &crate::scene::Scene) {
+    fn render_rasterization(&mut self, scene: &crate::scene::Scene) {
         let render_data = scene.get_render_data();
         self.render_with_transforms_and_colors(&render_data);
     }
@@ -313,18 +320,18 @@ impl MetalRenderer {
             // Create a new uniform buffer for each draw call to avoid race conditions
             let model = transform.to_matrix();
             let mvp = self.camera.view_projection_matrix() * model;
-            let uniforms = Uniforms {
+            let uniforms = crate::scene::Uniforms {
                 model_view_projection: mvp.to_cols_array_2d(),
             };
             
             // Create temporary uniform buffer for this draw call
             let temp_uniform_buffer = self.layer.device().new_buffer(
-                std::mem::size_of::<Uniforms>() as u64,
+                std::mem::size_of::<crate::scene::Uniforms>() as u64,
                 MTLResourceOptions::CPUCacheModeDefaultCache,
             );
             
             unsafe {
-                let uniform_ptr = temp_uniform_buffer.contents() as *mut Uniforms;
+                let uniform_ptr = temp_uniform_buffer.contents() as *mut crate::scene::Uniforms;
                 std::ptr::write(uniform_ptr, uniforms);
             }
             
@@ -335,6 +342,118 @@ impl MetalRenderer {
         }
         
         encoder.end_encoding();
+        
+        command_buffer.present_drawable(drawable);
+        command_buffer.commit();
+    }
+    
+    /// Software ray tracing renderer using Metal compute shaders.
+    ///
+    /// Performs GPU-accelerated ray tracing with the following features:
+    /// - Per-pixel ray generation from camera
+    /// - Triangle intersection testing using Möller–Trumbore algorithm
+    /// - Phong lighting with diffuse and ambient components
+    ///
+    /// # Arguments
+    ///
+    /// * `scene` - The scene to render
+    ///
+    /// # Performance
+    ///
+    /// This method uses compute shaders for parallel ray tracing on the GPU,
+    /// which is significantly faster than CPU-based ray tracing.
+    pub fn render_software_raytracing(&mut self, scene: &crate::scene::Scene) {
+        let drawable = match self.layer.next_drawable() {
+            Some(drawable) => drawable,
+            None => return,
+        };
+        
+        let width = drawable.texture().width();
+        let height = drawable.texture().height();
+        
+        // Get triangle data from scene (already transformed to world space)
+        let triangles = scene.get_triangle_data();
+        
+        if triangles.is_empty() {
+            eprintln!("WARNING: No triangles to render!");
+            return;
+        }
+        
+        // Create triangle buffer
+        let triangle_buffer = self.device.new_buffer_with_data(
+            triangles.as_ptr() as *const _,
+            (triangles.len() * std::mem::size_of::<crate::scene::Triangle>()) as u64,
+            MTLResourceOptions::StorageModeShared,
+        );
+        
+        // Create params buffer
+        let params = RayTracingParams {
+            camera_position: self.camera.position().to_array(),
+            aspect_ratio: width as f32 / height as f32,
+            camera_target: self.camera.target().to_array(),
+            triangle_count: triangles.len() as f32,
+        };
+        
+        let params_buffer = self.device.new_buffer_with_data(
+            &params as *const RayTracingParams as *const _,
+            std::mem::size_of::<RayTracingParams>() as u64,
+            MTLResourceOptions::StorageModeShared,
+        );
+        
+        // Create output texture
+        let texture_descriptor = metal::TextureDescriptor::new();
+        texture_descriptor.set_pixel_format(metal::MTLPixelFormat::RGBA8Unorm);
+        texture_descriptor.set_width(width);
+        texture_descriptor.set_height(height);
+        texture_descriptor.set_usage(metal::MTLTextureUsage::ShaderWrite | metal::MTLTextureUsage::ShaderRead);
+        texture_descriptor.set_storage_mode(metal::MTLStorageMode::Private);
+        
+        let output_texture = self.device.new_texture(&texture_descriptor);
+        
+        // Dispatch compute shader
+        let command_buffer = self.command_queue.new_command_buffer();
+        let compute_encoder = command_buffer.new_compute_command_encoder();
+        
+        compute_encoder.set_compute_pipeline_state(&self.raytracing_pipeline);
+        compute_encoder.set_texture(0, Some(&output_texture));
+        compute_encoder.set_buffer(0, Some(&triangle_buffer), 0);
+        compute_encoder.set_buffer(1, Some(&params_buffer), 0);
+        compute_encoder.set_buffer(2, Some(&self.light_buffer), 0);
+        
+        // Calculate thread groups
+        let thread_group_size = metal::MTLSize {
+            width: 8,
+            height: 8,
+            depth: 1,
+        };
+        
+        let thread_groups = metal::MTLSize {
+            width: (width + thread_group_size.width - 1) / thread_group_size.width,
+            height: (height + thread_group_size.height - 1) / thread_group_size.height,
+            depth: 1,
+        };
+        
+        compute_encoder.dispatch_thread_groups(thread_groups, thread_group_size);
+        compute_encoder.end_encoding();
+        
+        // Blit to drawable
+        let blit_encoder = command_buffer.new_blit_command_encoder();
+        blit_encoder.copy_from_texture(
+            &output_texture,
+            0,
+            0,
+            metal::MTLOrigin { x: 0, y: 0, z: 0 },
+            metal::MTLSize {
+                width,
+                height,
+                depth: 1,
+            },
+            drawable.texture(),
+            0,
+            0,
+            metal::MTLOrigin { x: 0, y: 0, z: 0 },
+        );
+        blit_encoder.end_encoding();
         
         command_buffer.present_drawable(drawable);
         command_buffer.commit();
@@ -358,13 +477,13 @@ mod tests {
     #[test]
     fn test_vertex_structure_size() {
         // Vertex should be 36 bytes: 3 floats for position + 3 floats for normal + 3 floats for color
-        assert_eq!(std::mem::size_of::<Vertex>(), 36);
+        assert_eq!(std::mem::size_of::<crate::scene::Vertex>(), 36);
     }
 
     #[test]
     fn test_vertex_creation() {
         let color = [1.0, 0.5, 0.25];
-        let vertex = Vertex {
+        let vertex = crate::scene::Vertex {
             position: [1.0, 2.0, 3.0],
             normal: [0.0, 1.0, 0.0],
             color,
@@ -378,13 +497,13 @@ mod tests {
     #[test]
     fn test_uniforms_structure_size() {
         // Uniforms should be 64 bytes: 16 floats for 4x4 matrix
-        assert_eq!(std::mem::size_of::<Uniforms>(), 64);
+        assert_eq!(std::mem::size_of::<crate::scene::Uniforms>(), 64);
     }
 
     #[test]
     fn test_uniforms_matrix_layout() {
         let identity = Mat4::IDENTITY;
-        let uniforms = Uniforms {
+        let uniforms = crate::scene::Uniforms {
             model_view_projection: identity.to_cols_array_2d(),
         };
         
@@ -404,7 +523,7 @@ mod tests {
         let transform = Transform::from_position(Vec3::new(5.0, 10.0, 15.0));
         let model = transform.to_matrix();
         
-        let uniforms = Uniforms {
+        let uniforms = crate::scene::Uniforms {
             model_view_projection: model.to_cols_array_2d(),
         };
         
@@ -482,12 +601,12 @@ mod tests {
         
         // Create vertices for a front face (6 vertices)
         let vertices = [
-            Vertex { position: [-0.5, -0.5,  0.5], normal: [0.0, 0.0, 1.0], color },
-            Vertex { position: [ 0.5, -0.5,  0.5], normal: [0.0, 0.0, 1.0], color },
-            Vertex { position: [ 0.5,  0.5,  0.5], normal: [0.0, 0.0, 1.0], color },
-            Vertex { position: [-0.5, -0.5,  0.5], normal: [0.0, 0.0, 1.0], color },
-            Vertex { position: [ 0.5,  0.5,  0.5], normal: [0.0, 0.0, 1.0], color },
-            Vertex { position: [-0.5,  0.5,  0.5], normal: [0.0, 0.0, 1.0], color },
+            crate::scene::Vertex { position: [-0.5, -0.5,  0.5], normal: [0.0, 0.0, 1.0], color },
+            crate::scene::Vertex { position: [ 0.5, -0.5,  0.5], normal: [0.0, 0.0, 1.0], color },
+            crate::scene::Vertex { position: [ 0.5,  0.5,  0.5], normal: [0.0, 0.0, 1.0], color },
+            crate::scene::Vertex { position: [-0.5, -0.5,  0.5], normal: [0.0, 0.0, 1.0], color },
+            crate::scene::Vertex { position: [ 0.5,  0.5,  0.5], normal: [0.0, 0.0, 1.0], color },
+            crate::scene::Vertex { position: [-0.5,  0.5,  0.5], normal: [0.0, 0.0, 1.0], color },
         ];
         
         // All vertices should have the same color
@@ -611,7 +730,7 @@ mod tests {
     #[test]
     fn test_vertex_copy_trait() {
         // Verify that Vertex implements Copy trait for efficient cloning
-        let v1 = Vertex {
+        let v1 = crate::scene::Vertex {
             position: [1.0, 2.0, 3.0],
             normal: [0.0, 1.0, 0.0],
             color: [0.5, 0.5, 0.5],
@@ -627,7 +746,7 @@ mod tests {
 
     #[test]
     fn test_light_uniforms_default() {
-        let light = LightUniforms::default();
+        let light = crate::scene::LightUniforms::default();
         
         // Test default light direction (upper left)
         assert_eq!(light.direction, [-0.5, -1.0, -0.3]);
@@ -646,7 +765,7 @@ mod tests {
     fn test_light_uniforms_size() {
         // LightUniforms should be properly aligned for GPU
         // 3 floats + padding + 3 floats + padding + 4 floats = 48 bytes
-        assert_eq!(std::mem::size_of::<LightUniforms>(), 48);
+        assert_eq!(std::mem::size_of::<crate::scene::LightUniforms>(), 48);
     }
 
     #[test]

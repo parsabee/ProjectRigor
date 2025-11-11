@@ -21,3 +21,4 @@ raw-window-handle = "0.6"
 glam = "0.29"
 rapier3d = "0.22"
 hecs = "0.10"
+clap = { version = "4.5", features = ["derive"] }

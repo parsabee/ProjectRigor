@@ -12,6 +12,7 @@
 use crate::renderer::MetalRenderer;
 use crate::scene::{Scene, SceneBuilder};
 use crate::scenes::demo_scene::DemoScene;
+use crate::RenderingMode;
 use std::collections::HashSet;
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, MouseButton, WindowEvent};
@@ -54,6 +55,7 @@ pub struct App {
     mouse_pressed: bool,
     last_mouse_pos: Option<(f64, f64)>,
     mouse_sensitivity: f32,
+    render_mode: RenderingMode,
 }
 
 impl App {
@@ -63,6 +65,7 @@ impl App {
     /// - An empty scene populated with the demo content (falling cubes and spheres)
     /// - Camera controls with default speed (0.2 units/frame) and mouse sensitivity (0.005 rad/pixel)
     /// - Input state tracking
+    /// - Default rendering mode (Rasterization)
     ///
     /// The window and renderer are created lazily when the event loop starts.
     ///
@@ -74,6 +77,23 @@ impl App {
     /// let app = App::new();
     /// ```
     pub fn new() -> Self {
+        Self::new_with_render_mode(RenderingMode::Rasterization)
+    }
+
+    /// Creates a new application instance with a specific rendering mode.
+    ///
+    /// # Arguments
+    ///
+    /// * `render_mode` - The rendering mode to use (HardwareRayTracing, SoftwareRayTracing, or Rasterization)
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use projectrigor::{App, RenderingMode};
+    ///
+    /// let app = App::new_with_render_mode(RenderingMode::HardwareRayTracing);
+    /// ```
+    pub fn new_with_render_mode(render_mode: RenderingMode) -> Self {
         let mut scene = Scene::new();
         DemoScene::build(&mut scene);
         
@@ -87,7 +107,13 @@ impl App {
             mouse_pressed: false,
             last_mouse_pos: None,
             mouse_sensitivity: 0.005, // Radians per pixel
+            render_mode,
         }
+    }
+
+    /// Returns the current rendering mode.
+    pub fn render_mode(&self) -> RenderingMode {
+        self.render_mode
     }
 }
 
@@ -105,7 +131,11 @@ impl ApplicationHandler for App {
                 .with_inner_size(winit::dpi::LogicalSize::new(800.0, 600.0));
             
             let window = event_loop.create_window(window_attributes).unwrap();
-            let renderer = MetalRenderer::new(&window);
+            let config = crate::renderer::RendererConfig {
+                render_mode: self.render_mode,
+                ..crate::renderer::RendererConfig::default()
+            };
+            let renderer = MetalRenderer::new(&window, config);
             
             // Request initial redraw
             window.request_redraw();

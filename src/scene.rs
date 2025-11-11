@@ -34,6 +34,85 @@ use crate::math::Transform;
 use crate::physics::PhysicsWorld;
 use hecs::World;
 
+/// Vertex data with position, normal, and color.
+///
+/// Each vertex contains:
+/// - `position`: 3D coordinates in model space
+/// - `normal`: Surface normal for lighting calculations
+/// - `color`: Per-vertex RGB color (0.0-1.0)
+///
+/// Total size: 36 bytes (3 * [f32; 3])
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct Vertex {
+    pub position: [f32; 3],
+    pub normal: [f32; 3],
+    pub color: [f32; 3],
+}
+
+/// Uniform data for transformation matrices.
+///
+/// Passed to vertex shader for transforming vertices to clip space.
+#[repr(C)]
+pub struct Uniforms {
+    pub model_view_projection: [[f32; 4]; 4],
+}
+
+/// Lighting parameters for Phong shading.
+///
+/// Contains directional light properties:
+/// - `direction`: Light direction vector (normalized)
+/// - `color`: Light RGB color
+/// - `ambient_intensity`: Ambient light strength (0.0-1.0)
+/// - `diffuse_intensity`: Diffuse light strength (0.0-1.0)
+/// - `specular_intensity`: Specular highlight strength (0.0-1.0)
+/// - `shininess`: Specular power/sharpness (higher = sharper highlights)
+///
+/// Total size: 48 bytes (with padding for Metal alignment)
+#[repr(C)]
+pub struct LightUniforms {
+    pub direction: [f32; 3],
+    pub _padding1: f32,
+    pub color: [f32; 3],
+    pub _padding2: f32,
+    pub ambient_intensity: f32,
+    pub diffuse_intensity: f32,
+    pub specular_intensity: f32,
+    pub shininess: f32,
+}
+
+impl Default for LightUniforms {
+    fn default() -> Self {
+        Self {
+            direction: [-0.5, -1.0, -0.3], // Light from upper left
+            _padding1: 0.0,
+            color: [1.0, 1.0, 1.0], // White light
+            _padding2: 0.0,
+            ambient_intensity: 0.6,  // Increased for ray tracing visibility
+            diffuse_intensity: 0.8,
+            specular_intensity: 0.5,
+            shininess: 32.0,
+        }
+    }
+}
+
+/// Triangle data for ray tracing.
+///
+/// Compact layout without padding - uses packed_float3 in Metal shader.
+/// Total size: 84 bytes (7 * 12 bytes)
+#[repr(C)]
+pub struct Triangle {
+    pub p0: [f32; 3],
+    pub p1: [f32; 3],
+    pub p2: [f32; 3],
+    pub n0: [f32; 3],
+    pub n1: [f32; 3],
+    pub n2: [f32; 3],
+    pub color: [f32; 3],
+}
+
+/// A scene that manages an ECS world and physics simulation.
+
 /// A scene that manages an ECS world and physics simulation.
 ///
 /// The `Scene` struct owns both the [`hecs::World`] for entity-component storage
@@ -138,6 +217,75 @@ impl Scene {
                 (transform_comp.transform, render_comp.color, render_comp.shape.clone())
             })
             .collect()
+    }
+
+    /// Extracts triangle data from all entities in the scene for ray tracing.
+    ///
+    /// Queries all entities with both [`TransformComponent`] and [`RenderComponent`],
+    /// transforms their meshes to world space, and returns a flat list of triangles
+    /// ready for GPU upload.
+    ///
+    /// Each triangle contains:
+    /// - 3 vertex positions (transformed to world space)
+    /// - 3 vertex normals (transformed by inverse transpose for correct scaling)
+    /// - 1 material color
+    ///
+    /// # Returns
+    ///
+    /// A vector of triangles in world space, ready for ray tracing.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// # use projectrigor::scene::Scene;
+    /// let scene = Scene::new();
+    /// let triangles = scene.get_triangle_data();
+    /// // Upload triangles to GPU for ray tracing
+    /// ```
+    pub fn get_triangle_data(&self) -> Vec<Triangle> {
+        let mut triangles = Vec::new();
+        
+        for (_entity, (transform_comp, render_comp)) in 
+            self.world.query::<(&TransformComponent, &RenderComponent)>().iter()
+        {
+            let transform = &transform_comp.transform;
+            let color = render_comp.color;
+            
+            let crate::ecs::RenderShape::Mesh { vertices, indices } = &render_comp.shape;
+            
+            // Convert indexed mesh to triangle list
+            for chunk in indices.chunks(3) {
+                if chunk.len() == 3 {
+                    let v0 = &vertices[chunk[0] as usize];
+                    let v1 = &vertices[chunk[1] as usize];
+                    let v2 = &vertices[chunk[2] as usize];
+                    
+                    // Apply transform to vertices
+                    let mat = transform.to_matrix();
+                    let p0 = mat.transform_point3(glam::Vec3::from_slice(&v0[0..3]));
+                    let p1 = mat.transform_point3(glam::Vec3::from_slice(&v1[0..3]));
+                    let p2 = mat.transform_point3(glam::Vec3::from_slice(&v2[0..3]));
+                    
+                    // Transform normals (use inverse transpose for non-uniform scaling)
+                    let normal_mat = mat.inverse().transpose();
+                    let n0 = normal_mat.transform_vector3(glam::Vec3::from_slice(&v0[3..6])).normalize();
+                    let n1 = normal_mat.transform_vector3(glam::Vec3::from_slice(&v1[3..6])).normalize();
+                    let n2 = normal_mat.transform_vector3(glam::Vec3::from_slice(&v2[3..6])).normalize();
+                    
+                    triangles.push(Triangle {
+                        p0: p0.to_array(),
+                        p1: p1.to_array(),
+                        p2: p2.to_array(),
+                        n0: n0.to_array(),
+                        n1: n1.to_array(),
+                        n2: n2.to_array(),
+                        color,
+                    });
+                }
+            }
+        }
+        
+        triangles
     }
 
     /// Returns the position of the first dynamic entity found in the scene.
