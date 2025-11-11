@@ -37,7 +37,7 @@ use winit::window::{Window, WindowId};
 /// # Example
 ///
 /// ```rust,no_run
-/// use project_rigor::App;
+/// use projectrigor::App;
 /// use winit::event_loop::EventLoop;
 ///
 /// let event_loop = EventLoop::new().unwrap();
@@ -69,7 +69,7 @@ impl App {
     /// # Example
     ///
     /// ```rust,no_run
-    /// use project_rigor::App;
+    /// use projectrigor::App;
     ///
     /// let app = App::new();
     /// ```
@@ -202,8 +202,6 @@ impl ApplicationHandler for App {
                     self.scene.step_physics();
                     
                     // Get render data from scene
-                    let render_data = self.scene.get_render_data();
-                    
                     // Debug: print first dynamic entity position every 60 frames
                     if self.frame_count % 60 == 0 {
                         if let Some(pos) = self.scene.get_first_dynamic_position() {
@@ -211,7 +209,7 @@ impl ApplicationHandler for App {
                         }
                     }
                     
-                    renderer.render_with_transforms_and_colors(&render_data);
+                    renderer.render(&self.scene);
                     self.frame_count += 1;
                     window.request_redraw();
                 }

@@ -12,7 +12,7 @@
 //! # Example
 //!
 //! ```rust
-//! use project_rigor::math::Transform;
+//! use projectrigor::math::Transform;
 //! use glam::{Vec3, Quat};
 //!
 //! // Create a transform at a position
@@ -38,7 +38,7 @@ use glam::{Mat4, Quat, Vec3};
 /// # Example
 ///
 /// ```rust
-/// use project_rigor::math::Transform;
+/// use projectrigor::math::Transform;
 /// use glam::{Vec3, Quat};
 /// use std::f32::consts::PI;
 ///
@@ -67,7 +67,7 @@ impl Transform {
     /// # Example
     ///
     /// ```rust
-    /// use project_rigor::math::Transform;
+    /// use projectrigor::math::Transform;
     /// use glam::{Vec3, Quat};
     ///
     /// let transform = Transform::identity();
@@ -92,7 +92,7 @@ impl Transform {
     /// # Example
     ///
     /// ```rust
-    /// use project_rigor::math::Transform;
+    /// use projectrigor::math::Transform;
     /// use glam::Vec3;
     ///
     /// let transform = Transform::from_position(Vec3::new(1.0, 2.0, 3.0));
@@ -118,7 +118,7 @@ impl Transform {
     /// # Example
     ///
     /// ```rust
-    /// use project_rigor::math::Transform;
+    /// use projectrigor::math::Transform;
     /// use glam::{Vec3, Quat};
     /// use std::f32::consts::PI;
     ///
@@ -148,7 +148,7 @@ impl Transform {
     /// # Example
     ///
     /// ```rust
-    /// use project_rigor::math::Transform;
+    /// use projectrigor::math::Transform;
     /// use glam::Vec3;
     ///
     /// let transform = Transform::from_position(Vec3::new(1.0, 2.0, 3.0));
@@ -175,7 +175,7 @@ impl Transform {
     /// # Example
     ///
     /// ```rust
-    /// use project_rigor::math::Transform;
+    /// use projectrigor::math::Transform;
     /// use glam::Vec3;
     ///
     /// let transform = Transform::from_position(Vec3::new(5.0, 0.0, 0.0));
@@ -202,7 +202,7 @@ impl Transform {
     /// # Example
     ///
     /// ```rust
-    /// use project_rigor::math::Transform;
+    /// use projectrigor::math::Transform;
     /// use glam::{Vec3, Quat};
     /// use std::f32::consts::PI;
     ///
@@ -227,7 +227,7 @@ impl Transform {
     /// # Example
     ///
     /// ```rust
-    /// use project_rigor::math::Transform;
+    /// use projectrigor::math::Transform;
     /// use glam::Quat;
     /// use std::f32::consts::PI;
     ///
@@ -247,7 +247,7 @@ impl Transform {
     /// # Example
     ///
     /// ```rust
-    /// use project_rigor::math::Transform;
+    /// use projectrigor::math::Transform;
     /// use glam::Vec3;
     ///
     /// let mut transform = Transform::identity();

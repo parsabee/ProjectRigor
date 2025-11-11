@@ -27,9 +27,9 @@ use glam::Vec3;
 /// # Example
 ///
 /// ```rust,no_run
-/// use project_rigor::scene::Scene;
-/// use project_rigor::scenes::demo_scene::DemoScene;
-/// use project_rigor::scene::SceneBuilder;
+/// use projectrigor::scene::Scene;
+/// use projectrigor::scenes::demo_scene::DemoScene;
+/// use projectrigor::scene::SceneBuilder;
 ///
 /// let mut scene = Scene::new();
 /// DemoScene::build(&mut scene);

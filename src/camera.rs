@@ -14,7 +14,7 @@
 //! # Example
 //!
 //! ```rust,no_run
-//! use project_rigor::camera::Camera;
+//! use projectrigor::camera::Camera;
 //!
 //! let mut camera = Camera::new(16.0 / 9.0); // 16:9 aspect ratio
 //!
@@ -49,7 +49,7 @@ use glam::{Mat4, Vec3};
 /// # Example
 ///
 /// ```rust
-/// use project_rigor::camera::Camera;
+/// use projectrigor::camera::Camera;
 /// use glam::Vec3;
 ///
 /// let mut camera = Camera::new(1920.0 / 1080.0);
@@ -84,7 +84,7 @@ impl Camera {
     /// # Example
     ///
     /// ```rust
-    /// use project_rigor::camera::Camera;
+    /// use projectrigor::camera::Camera;
     ///
     /// let camera = Camera::new(16.0 / 9.0);
     /// ```
@@ -112,7 +112,7 @@ impl Camera {
     /// # Example
     ///
     /// ```rust
-    /// use project_rigor::camera::Camera;
+    /// use projectrigor::camera::Camera;
     ///
     /// let camera = Camera::new(16.0 / 9.0);
     /// let view = camera.view_matrix();
@@ -133,7 +133,7 @@ impl Camera {
     /// # Example
     ///
     /// ```rust
-    /// use project_rigor::camera::Camera;
+    /// use projectrigor::camera::Camera;
     ///
     /// let camera = Camera::new(16.0 / 9.0);
     /// let projection = camera.projection_matrix();
@@ -154,7 +154,7 @@ impl Camera {
     /// # Example
     ///
     /// ```rust
-    /// use project_rigor::camera::Camera;
+    /// use projectrigor::camera::Camera;
     ///
     /// let camera = Camera::new(16.0 / 9.0);
     /// let vp = camera.view_projection_matrix();
@@ -175,7 +175,7 @@ impl Camera {
     /// # Example
     ///
     /// ```rust
-    /// use project_rigor::camera::Camera;
+    /// use projectrigor::camera::Camera;
     ///
     /// let mut camera = Camera::new(16.0 / 9.0);
     /// camera.update_aspect_ratio(21.0 / 9.0); // Ultrawide
@@ -193,7 +193,7 @@ impl Camera {
     /// # Example
     ///
     /// ```rust
-    /// use project_rigor::camera::Camera;
+    /// use projectrigor::camera::Camera;
     /// use glam::Vec3;
     ///
     /// let mut camera = Camera::new(16.0 / 9.0);
@@ -212,7 +212,7 @@ impl Camera {
     /// # Example
     ///
     /// ```rust
-    /// use project_rigor::camera::Camera;
+    /// use projectrigor::camera::Camera;
     /// use glam::Vec3;
     ///
     /// let mut camera = Camera::new(16.0 / 9.0);
@@ -233,7 +233,7 @@ impl Camera {
     /// # Example
     ///
     /// ```rust
-    /// use project_rigor::camera::Camera;
+    /// use projectrigor::camera::Camera;
     ///
     /// let camera = Camera::new(16.0 / 9.0);
     /// let forward = camera.forward();
@@ -253,7 +253,7 @@ impl Camera {
     /// # Example
     ///
     /// ```rust
-    /// use project_rigor::camera::Camera;
+    /// use projectrigor::camera::Camera;
     ///
     /// let camera = Camera::new(16.0 / 9.0);
     /// let right = camera.right();
@@ -273,7 +273,7 @@ impl Camera {
     /// # Example
     ///
     /// ```rust
-    /// use project_rigor::camera::Camera;
+    /// use projectrigor::camera::Camera;
     ///
     /// let mut camera = Camera::new(16.0 / 9.0);
     /// camera.move_forward(1.0); // Move 1 unit forward
@@ -295,7 +295,7 @@ impl Camera {
     /// # Example
     ///
     /// ```rust
-    /// use project_rigor::camera::Camera;
+    /// use projectrigor::camera::Camera;
     ///
     /// let mut camera = Camera::new(16.0 / 9.0);
     /// camera.move_backward(1.0); // Move 1 unit backward
@@ -315,7 +315,7 @@ impl Camera {
     /// # Example
     ///
     /// ```rust
-    /// use project_rigor::camera::Camera;
+    /// use projectrigor::camera::Camera;
     ///
     /// let mut camera = Camera::new(16.0 / 9.0);
     /// camera.move_left(0.5); // Strafe left
@@ -335,7 +335,7 @@ impl Camera {
     /// # Example
     ///
     /// ```rust
-    /// use project_rigor::camera::Camera;
+    /// use projectrigor::camera::Camera;
     ///
     /// let mut camera = Camera::new(16.0 / 9.0);
     /// camera.move_right(0.5); // Strafe right
@@ -355,7 +355,7 @@ impl Camera {
     /// # Example
     ///
     /// ```rust
-    /// use project_rigor::camera::Camera;
+    /// use projectrigor::camera::Camera;
     ///
     /// let mut camera = Camera::new(16.0 / 9.0);
     /// camera.move_up(1.0); // Ascend
@@ -374,7 +374,7 @@ impl Camera {
     /// # Example
     ///
     /// ```rust
-    /// use project_rigor::camera::Camera;
+    /// use projectrigor::camera::Camera;
     ///
     /// let mut camera = Camera::new(16.0 / 9.0);
     /// camera.move_down(1.0); // Descend
@@ -393,7 +393,7 @@ impl Camera {
     /// # Example
     ///
     /// ```rust
-    /// use project_rigor::camera::Camera;
+    /// use projectrigor::camera::Camera;
     ///
     /// let camera = Camera::new(16.0 / 9.0);
     /// let pos = camera.position();
@@ -412,7 +412,7 @@ impl Camera {
     /// # Example
     ///
     /// ```rust
-    /// use project_rigor::camera::Camera;
+    /// use projectrigor::camera::Camera;
     ///
     /// let camera = Camera::new(16.0 / 9.0);
     /// let target = camera.target();
@@ -434,7 +434,7 @@ impl Camera {
     /// # Example
     ///
     /// ```rust
-    /// use project_rigor::camera::Camera;
+    /// use projectrigor::camera::Camera;
     /// use std::f32::consts::PI;
     ///
     /// let mut camera = Camera::new(16.0 / 9.0);
@@ -468,7 +468,7 @@ impl Camera {
     /// # Example
     ///
     /// ```rust
-    /// use project_rigor::camera::Camera;
+    /// use projectrigor::camera::Camera;
     /// use std::f32::consts::PI;
     ///
     /// let mut camera = Camera::new(16.0 / 9.0);

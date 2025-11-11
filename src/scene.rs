@@ -18,8 +18,8 @@
 //! # Example
 //!
 //! ```rust,no_run
-//! use project_rigor::scene::{Scene, SceneBuilder};
-//! use project_rigor::scenes::demo_scene::DemoScene;
+//! use projectrigor::scene::{Scene, SceneBuilder};
+//! use projectrigor::scenes::demo_scene::DemoScene;
 //!
 //! let mut scene = Scene::new();
 //! DemoScene::build(&mut scene);
@@ -48,7 +48,7 @@ use hecs::World;
 /// # Example
 ///
 /// ```rust,no_run
-/// use project_rigor::scene::Scene;
+/// use projectrigor::scene::Scene;
 ///
 /// let mut scene = Scene::new();
 /// // Add entities to scene.world and scene.physics
@@ -68,7 +68,7 @@ impl Scene {
     /// # Example
     ///
     /// ```rust
-    /// use project_rigor::scene::Scene;
+    /// use projectrigor::scene::Scene;
     ///
     /// let scene = Scene::new();
     /// ```
@@ -91,7 +91,7 @@ impl Scene {
     /// # Example
     ///
     /// ```rust,no_run
-    /// # use project_rigor::scene::Scene;
+    /// # use projectrigor::scene::Scene;
     /// let mut scene = Scene::new();
     /// // ... add entities to scene
     /// scene.step_physics(); // Advances physics by one frame
@@ -125,7 +125,7 @@ impl Scene {
     /// # Example
     ///
     /// ```rust,no_run
-    /// # use project_rigor::scene::Scene;
+    /// # use projectrigor::scene::Scene;
     /// let scene = Scene::new();
     /// let render_data = scene.get_render_data();
     /// // Pass render_data to renderer
@@ -135,7 +135,7 @@ impl Scene {
             .query::<(&TransformComponent, &RenderComponent)>()
             .iter()
             .map(|(_entity, (transform_comp, render_comp))| {
-                (transform_comp.transform, render_comp.color, render_comp.shape)
+                (transform_comp.transform, render_comp.color, render_comp.shape.clone())
             })
             .collect()
     }
@@ -154,7 +154,7 @@ impl Scene {
     /// # Example
     ///
     /// ```rust,no_run
-    /// # use project_rigor::scene::Scene;
+    /// # use projectrigor::scene::Scene;
     /// let scene = Scene::new();
     /// if let Some(pos) = scene.get_first_dynamic_position() {
     ///     println!("First dynamic entity at: {:?}", pos);
@@ -183,9 +183,9 @@ impl Default for Scene {
 /// # Example
 ///
 /// ```rust,no_run
-/// use project_rigor::scene::{Scene, SceneBuilder};
-/// use project_rigor::ecs::{TransformComponent, RenderComponent, StaticTag};
-/// use project_rigor::math::Transform;
+/// use projectrigor::scene::{Scene, SceneBuilder};
+/// use projectrigor::ecs::{TransformComponent, RenderComponent, StaticTag};
+/// use projectrigor::math::Transform;
 /// use glam::Vec3;
 ///
 /// pub struct EmptyScene;

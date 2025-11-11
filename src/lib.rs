@@ -29,7 +29,7 @@
 //! # Quick Start
 //!
 //! ```rust,no_run
-//! use project_rigor::App;
+//! use projectrigor::App;
 //! use winit::event_loop::EventLoop;
 //!
 //! fn main() {
@@ -42,9 +42,9 @@
 //! # Creating Custom Scenes
 //!
 //! ```rust,no_run
-//! use project_rigor::scene::{Scene, SceneBuilder};
-//! use project_rigor::ecs::{TransformComponent, RenderComponent, DynamicTag, PhysicsBodyComponent};
-//! use project_rigor::math::Transform;
+//! use projectrigor::scene::{Scene, SceneBuilder};
+//! use projectrigor::ecs::{TransformComponent, RenderComponent, DynamicTag, PhysicsBodyComponent};
+//! use projectrigor::math::Transform;
 //! use glam::Vec3;
 //!
 //! struct MyScene;

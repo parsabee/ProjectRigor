@@ -20,8 +20,8 @@
 //! # Example
 //!
 //! ```rust
-//! use project_rigor::physics::PhysicsWorld;
-//! use project_rigor::math::Transform;
+//! use projectrigor::physics::PhysicsWorld;
+//! use projectrigor::math::Transform;
 //! use glam::Vec3;
 //!
 //! let mut physics = PhysicsWorld::new();
@@ -59,8 +59,8 @@ use rapier3d::na::{Quaternion, UnitQuaternion};
 /// # Example
 ///
 /// ```rust
-/// use project_rigor::physics::PhysicsWorld;
-/// use project_rigor::math::Transform;
+/// use projectrigor::physics::PhysicsWorld;
+/// use projectrigor::math::Transform;
 /// use glam::Vec3;
 ///
 /// let mut physics = PhysicsWorld::new();
@@ -105,7 +105,7 @@ impl PhysicsWorld {
     /// # Example
     ///
     /// ```rust
-    /// use project_rigor::physics::PhysicsWorld;
+    /// use projectrigor::physics::PhysicsWorld;
     ///
     /// let physics = PhysicsWorld::new();
     /// ```
@@ -122,7 +122,7 @@ impl PhysicsWorld {
     /// # Example
     ///
     /// ```rust
-    /// use project_rigor::physics::PhysicsWorld;
+    /// use projectrigor::physics::PhysicsWorld;
     /// use glam::Vec3;
     ///
     /// // Moon gravity (approximately 1/6 of Earth)
@@ -153,7 +153,7 @@ impl PhysicsWorld {
     /// # Example
     ///
     /// ```rust
-    /// use project_rigor::physics::PhysicsWorld;
+    /// use projectrigor::physics::PhysicsWorld;
     ///
     /// let mut physics = PhysicsWorld::new();
     /// physics.step(); // Advance by ~16.67ms
@@ -194,8 +194,8 @@ impl PhysicsWorld {
     /// # Example
     ///
     /// ```rust
-    /// use project_rigor::physics::PhysicsWorld;
-    /// use project_rigor::math::Transform;
+    /// use projectrigor::physics::PhysicsWorld;
+    /// use projectrigor::math::Transform;
     /// use glam::Vec3;
     ///
     /// let mut physics = PhysicsWorld::new();
@@ -239,8 +239,8 @@ impl PhysicsWorld {
     /// # Example
     ///
     /// ```rust
-    /// use project_rigor::physics::PhysicsWorld;
-    /// use project_rigor::math::Transform;
+    /// use projectrigor::physics::PhysicsWorld;
+    /// use projectrigor::math::Transform;
     /// use glam::Vec3;
     ///
     /// let mut physics = PhysicsWorld::new();
@@ -285,8 +285,8 @@ impl PhysicsWorld {
     /// # Example
     ///
     /// ```rust
-    /// use project_rigor::physics::PhysicsWorld;
-    /// use project_rigor::math::Transform;
+    /// use projectrigor::physics::PhysicsWorld;
+    /// use projectrigor::math::Transform;
     /// use glam::Vec3;
     ///
     /// let mut physics = PhysicsWorld::new();
@@ -322,8 +322,8 @@ impl PhysicsWorld {
     /// # Example
     ///
     /// ```rust
-    /// use project_rigor::physics::PhysicsWorld;
-    /// use project_rigor::math::Transform;
+    /// use projectrigor::physics::PhysicsWorld;
+    /// use projectrigor::math::Transform;
     /// use glam::Vec3;
     ///
     /// let mut physics = PhysicsWorld::new();
@@ -358,8 +358,8 @@ impl PhysicsWorld {
     /// # Example
     ///
     /// ```rust
-    /// use project_rigor::physics::PhysicsWorld;
-    /// use project_rigor::math::Transform;
+    /// use projectrigor::physics::PhysicsWorld;
+    /// use projectrigor::math::Transform;
     /// use glam::Vec3;
     ///
     /// let mut physics = PhysicsWorld::new();
@@ -396,8 +396,8 @@ impl PhysicsWorld {
     /// # Example
     ///
     /// ```rust
-    /// use project_rigor::physics::PhysicsWorld;
-    /// use project_rigor::math::Transform;
+    /// use projectrigor::physics::PhysicsWorld;
+    /// use projectrigor::math::Transform;
     /// use glam::Vec3;
     ///
     /// let mut physics = PhysicsWorld::new();
@@ -426,8 +426,8 @@ impl PhysicsWorld {
     /// # Example
     ///
     /// ```rust
-    /// use project_rigor::physics::PhysicsWorld;
-    /// use project_rigor::math::Transform;
+    /// use projectrigor::physics::PhysicsWorld;
+    /// use projectrigor::math::Transform;
     /// use glam::Vec3;
     ///
     /// let mut physics = PhysicsWorld::new();

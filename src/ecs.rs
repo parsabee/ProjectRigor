@@ -26,8 +26,8 @@ use rapier3d::prelude::RigidBodyHandle;
 /// # Example
 ///
 /// ```rust
-/// use project_rigor::ecs::TransformComponent;
-/// use project_rigor::math::Transform;
+/// use projectrigor::ecs::TransformComponent;
+/// use projectrigor::math::Transform;
 /// use glam::Vec3;
 ///
 /// let transform_comp = TransformComponent::from_position(Vec3::new(1.0, 2.0, 3.0));
@@ -60,7 +60,7 @@ impl TransformComponent {
     /// # Example
     ///
     /// ```rust
-    /// use project_rigor::ecs::TransformComponent;
+    /// use projectrigor::ecs::TransformComponent;
     /// use glam::Vec3;
     ///
     /// let transform = TransformComponent::from_position(Vec3::new(5.0, 0.0, -3.0));
@@ -82,7 +82,7 @@ impl TransformComponent {
 /// # Example
 ///
 /// ```rust,no_run
-/// use project_rigor::ecs::PhysicsBodyComponent;
+/// use projectrigor::ecs::PhysicsBodyComponent;
 /// use rapier3d::prelude::RigidBodyHandle;
 ///
 /// let handle = RigidBodyHandle::from_raw_parts(0, 1);
@@ -113,12 +113,12 @@ impl PhysicsBodyComponent {
 /// # Example
 ///
 /// ```rust
-/// use project_rigor::ecs::RenderComponent;
+/// use projectrigor::ecs::RenderComponent;
 ///
 /// let red_cube = RenderComponent::cube([1.0, 0.0, 0.0]);
 /// let blue_sphere = RenderComponent::sphere([0.0, 0.0, 1.0]);
 /// ```
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct RenderComponent {
     /// RGB color values (range 0.0-1.0)
     pub color: [f32; 3],
@@ -146,18 +146,20 @@ impl RenderComponent {
     /// # Example
     ///
     /// ```rust
-    /// use project_rigor::ecs::RenderComponent;
+    /// use projectrigor::ecs::RenderComponent;
     ///
     /// let red_cube = RenderComponent::cube([1.0, 0.0, 0.0]);
     /// ```
     pub fn cube(color: [f32; 3]) -> Self {
         Self {
             color,
-            shape: RenderShape::Cube,
+            shape: RenderShape::cube(color),
         }
     }
 
     /// Creates a render component for a sphere with the specified color.
+    ///
+    /// Uses default quality settings (20 segments × 20 rings).
     ///
     /// # Arguments
     ///
@@ -166,28 +168,185 @@ impl RenderComponent {
     /// # Example
     ///
     /// ```rust
-    /// use project_rigor::ecs::RenderComponent;
+    /// use projectrigor::ecs::RenderComponent;
     ///
     /// let green_sphere = RenderComponent::sphere([0.0, 1.0, 0.0]);
     /// ```
     pub fn sphere(color: [f32; 3]) -> Self {
         Self {
             color,
-            shape: RenderShape::Sphere,
+            shape: RenderShape::sphere(color, 20, 20),
+        }
+    }
+
+    /// Creates a render component for a custom triangle mesh.
+    ///
+    /// # Arguments
+    ///
+    /// * `color` - Base RGB color values (range 0.0-1.0), used if vertices don't have colors
+    /// * `vertices` - Vertex data where each vertex is [pos_x, pos_y, pos_z, normal_x, normal_y, normal_z, color_r, color_g, color_b]
+    /// * `indices` - Triangle indices (3 per triangle)
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use projectrigor::ecs::RenderComponent;
+    ///
+    /// // Create a simple triangle
+    /// let vertices = vec![
+    ///     [0.0, 1.0, 0.0,  0.0, 0.0, 1.0,  1.0, 0.0, 0.0], // top, red
+    ///     [-1.0, -1.0, 0.0,  0.0, 0.0, 1.0,  0.0, 1.0, 0.0], // bottom-left, green
+    ///     [1.0, -1.0, 0.0,  0.0, 0.0, 1.0,  0.0, 0.0, 1.0], // bottom-right, blue
+    /// ];
+    /// let indices = vec![0, 1, 2];
+    /// let mesh = RenderComponent::mesh([1.0, 1.0, 1.0], vertices, indices);
+    /// ```
+    pub fn mesh(color: [f32; 3], vertices: Vec<[f32; 9]>, indices: Vec<u32>) -> Self {
+        Self {
+            color,
+            shape: RenderShape::Mesh { vertices, indices },
         }
     }
 }
 
 /// The types of shapes that can be rendered.
 ///
-/// Currently supports cubes and spheres. Each shape has different geometry
-/// and rendering characteristics.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// All geometry is represented as triangle meshes with vertices and indices.
+#[derive(Debug, Clone, PartialEq)]
 pub enum RenderShape {
-    /// A cube (1×1×1 unit box by default, scaled by transform)
-    Cube,
-    /// A sphere (radius 0.5 by default, scaled by transform)
-    Sphere,
+    /// A custom triangle mesh with vertices and indices
+    Mesh {
+        /// Vertex data: each vertex is [position_xyz, normal_xyz, color_rgb]
+        vertices: Vec<[f32; 9]>,
+        /// Triangle indices (3 indices per triangle)
+        indices: Vec<u32>,
+    },
+}
+
+impl RenderShape {
+    /// Generates a cube mesh (1×1×1 unit box).
+    ///
+    /// Creates a cube with 8 vertices and 12 triangles (2 per face).
+    /// Each face has its own normal vector for flat shading.
+    ///
+    /// # Arguments
+    ///
+    /// * `color` - RGB color for all vertices
+    pub fn cube(color: [f32; 3]) -> Self {
+        let vertices = vec![
+            // Front face (Z+) - 4 vertices
+            [-0.5, -0.5,  0.5,  0.0, 0.0, 1.0,  color[0], color[1], color[2]], // 0
+            [ 0.5, -0.5,  0.5,  0.0, 0.0, 1.0,  color[0], color[1], color[2]], // 1
+            [ 0.5,  0.5,  0.5,  0.0, 0.0, 1.0,  color[0], color[1], color[2]], // 2
+            [-0.5,  0.5,  0.5,  0.0, 0.0, 1.0,  color[0], color[1], color[2]], // 3
+            
+            // Back face (Z-) - 4 vertices
+            [ 0.5, -0.5, -0.5,  0.0, 0.0, -1.0,  color[0], color[1], color[2]], // 4
+            [-0.5, -0.5, -0.5,  0.0, 0.0, -1.0,  color[0], color[1], color[2]], // 5
+            [-0.5,  0.5, -0.5,  0.0, 0.0, -1.0,  color[0], color[1], color[2]], // 6
+            [ 0.5,  0.5, -0.5,  0.0, 0.0, -1.0,  color[0], color[1], color[2]], // 7
+            
+            // Top face (Y+) - 4 vertices
+            [-0.5,  0.5,  0.5,  0.0, 1.0, 0.0,  color[0], color[1], color[2]], // 8
+            [ 0.5,  0.5,  0.5,  0.0, 1.0, 0.0,  color[0], color[1], color[2]], // 9
+            [ 0.5,  0.5, -0.5,  0.0, 1.0, 0.0,  color[0], color[1], color[2]], // 10
+            [-0.5,  0.5, -0.5,  0.0, 1.0, 0.0,  color[0], color[1], color[2]], // 11
+            
+            // Bottom face (Y-) - 4 vertices
+            [-0.5, -0.5, -0.5,  0.0, -1.0, 0.0,  color[0], color[1], color[2]], // 12
+            [ 0.5, -0.5, -0.5,  0.0, -1.0, 0.0,  color[0], color[1], color[2]], // 13
+            [ 0.5, -0.5,  0.5,  0.0, -1.0, 0.0,  color[0], color[1], color[2]], // 14
+            [-0.5, -0.5,  0.5,  0.0, -1.0, 0.0,  color[0], color[1], color[2]], // 15
+            
+            // Right face (X+) - 4 vertices
+            [ 0.5, -0.5,  0.5,  1.0, 0.0, 0.0,  color[0], color[1], color[2]], // 16
+            [ 0.5, -0.5, -0.5,  1.0, 0.0, 0.0,  color[0], color[1], color[2]], // 17
+            [ 0.5,  0.5, -0.5,  1.0, 0.0, 0.0,  color[0], color[1], color[2]], // 18
+            [ 0.5,  0.5,  0.5,  1.0, 0.0, 0.0,  color[0], color[1], color[2]], // 19
+            
+            // Left face (X-) - 4 vertices
+            [-0.5, -0.5, -0.5,  -1.0, 0.0, 0.0,  color[0], color[1], color[2]], // 20
+            [-0.5, -0.5,  0.5,  -1.0, 0.0, 0.0,  color[0], color[1], color[2]], // 21
+            [-0.5,  0.5,  0.5,  -1.0, 0.0, 0.0,  color[0], color[1], color[2]], // 22
+            [-0.5,  0.5, -0.5,  -1.0, 0.0, 0.0,  color[0], color[1], color[2]], // 23
+        ];
+        
+        let indices = vec![
+            // Front face
+            0, 1, 2,  0, 2, 3,
+            // Back face
+            4, 5, 6,  4, 6, 7,
+            // Top face
+            8, 9, 10,  8, 10, 11,
+            // Bottom face
+            12, 13, 14,  12, 14, 15,
+            // Right face
+            16, 17, 18,  16, 18, 19,
+            // Left face
+            20, 21, 22,  20, 22, 23,
+        ];
+        
+        RenderShape::Mesh { vertices, indices }
+    }
+    
+    /// Generates a sphere mesh using UV sphere algorithm.
+    ///
+    /// Creates a smooth sphere with the specified number of segments and rings.
+    /// Default uses 20 segments and 20 rings for a good balance of quality and performance.
+    ///
+    /// # Arguments
+    ///
+    /// * `color` - RGB color for all vertices
+    /// * `segments` - Number of horizontal divisions (longitude)
+    /// * `rings` - Number of vertical divisions (latitude)
+    pub fn sphere(color: [f32; 3], segments: u32, rings: u32) -> Self {
+        let mut vertices = Vec::new();
+        
+        // Generate sphere vertices
+        for ring in 0..=rings {
+            let theta = ring as f32 * std::f32::consts::PI / rings as f32;
+            let sin_theta = theta.sin();
+            let cos_theta = theta.cos();
+            
+            for segment in 0..=segments {
+                let phi = segment as f32 * 2.0 * std::f32::consts::PI / segments as f32;
+                let sin_phi = phi.sin();
+                let cos_phi = phi.cos();
+                
+                let x = cos_phi * sin_theta;
+                let y = cos_theta;
+                let z = sin_phi * sin_theta;
+                
+                // Position (scaled to radius 0.5), normal (unit sphere), color
+                vertices.push([
+                    x * 0.5, y * 0.5, z * 0.5,  // position
+                    x, y, z,                      // normal
+                    color[0], color[1], color[2], // color
+                ]);
+            }
+        }
+        
+        // Generate triangle indices
+        let mut indices = Vec::new();
+        for ring in 0..rings {
+            for segment in 0..segments {
+                let current = ring * (segments + 1) + segment;
+                let next = current + segments + 1;
+                
+                // First triangle
+                indices.push(current);
+                indices.push(next);
+                indices.push(current + 1);
+                
+                // Second triangle
+                indices.push(current + 1);
+                indices.push(next);
+                indices.push(next + 1);
+            }
+        }
+        
+        RenderShape::Mesh { vertices, indices }
+    }
 }
 
 /// A tag component marking an entity as static (non-moving).
@@ -198,7 +357,7 @@ pub enum RenderShape {
 /// # Example
 ///
 /// ```rust,no_run
-/// use project_rigor::ecs::{TransformComponent, RenderComponent, StaticTag};
+/// use projectrigor::ecs::{TransformComponent, RenderComponent, StaticTag};
 /// use glam::Vec3;
 /// use hecs::World;
 ///
@@ -220,7 +379,7 @@ pub struct StaticTag;
 /// # Example
 ///
 /// ```rust,no_run
-/// use project_rigor::ecs::{TransformComponent, RenderComponent, PhysicsBodyComponent, DynamicTag};
+/// use projectrigor::ecs::{TransformComponent, RenderComponent, PhysicsBodyComponent, DynamicTag};
 /// use glam::Vec3;
 /// use hecs::World;
 /// use rapier3d::prelude::RigidBodyHandle;
@@ -284,7 +443,8 @@ mod tests {
         for (_entity, (transform, render)) in world.query::<(&TransformComponent, &RenderComponent)>().iter() {
             count += 1;
             assert!(transform.transform.position.length() >= 0.0);
-            assert_eq!(render.shape, RenderShape::Cube);
+            // Check that shape is a Mesh variant
+            assert!(matches!(render.shape, RenderShape::Mesh { .. }));
         }
         
         assert_eq!(count, 3);
@@ -389,8 +549,10 @@ mod tests {
         let cube = RenderComponent::cube([1.0, 0.0, 0.0]);
         let sphere = RenderComponent::sphere([0.0, 1.0, 0.0]);
         
-        assert_eq!(cube.shape, RenderShape::Cube);
-        assert_eq!(sphere.shape, RenderShape::Sphere);
+        // Both should be Mesh variants now
+        assert!(matches!(cube.shape, RenderShape::Mesh { .. }));
+        assert!(matches!(sphere.shape, RenderShape::Mesh { .. }));
+        // They should have different vertex data
         assert_ne!(cube.shape, sphere.shape);
     }
 

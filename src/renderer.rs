@@ -18,13 +18,11 @@ use crate::camera::Camera;
 use cocoa::base::id as cocoa_id;
 use cocoa::foundation::NSRect;
 use core_graphics_types::geometry::CGSize;
-use glam::{Mat4, Quat};
 use metal::{Device, MTLPixelFormat, MetalLayer, MTLResourceOptions};
 use objc::runtime::YES;
 use objc::{msg_send, sel, sel_impl};
 use raw_window_handle::HasWindowHandle;
 use std::mem;
-use std::time::Instant;
 use winit::window::Window;
 
 /// Vertex data with position, normal, and color.
@@ -95,124 +93,28 @@ pub struct MetalRenderer {
     layer: MetalLayer,
     pipeline_state: metal::RenderPipelineState,
     depth_stencil_state: metal::DepthStencilState,
-    vertex_buffer: metal::Buffer,
-    uniform_buffer: metal::Buffer,
     light_buffer: metal::Buffer,
     camera: Camera,
-    start_time: Instant,
 }
 
 impl MetalRenderer {
-    // Helper to create cube vertices with a specific color
-    fn create_colored_cube_vertices(device: &metal::DeviceRef, color: [f32; 3]) -> metal::Buffer {
-        let vertices = [
-            // Front face (normal: +Z)
-            Vertex { position: [-0.5, -0.5,  0.5], normal: [0.0, 0.0, 1.0], color },
-            Vertex { position: [ 0.5, -0.5,  0.5], normal: [0.0, 0.0, 1.0], color },
-            Vertex { position: [ 0.5,  0.5,  0.5], normal: [0.0, 0.0, 1.0], color },
-            Vertex { position: [-0.5, -0.5,  0.5], normal: [0.0, 0.0, 1.0], color },
-            Vertex { position: [ 0.5,  0.5,  0.5], normal: [0.0, 0.0, 1.0], color },
-            Vertex { position: [-0.5,  0.5,  0.5], normal: [0.0, 0.0, 1.0], color },
-            
-            // Back face (normal: -Z)
-            Vertex { position: [ 0.5, -0.5, -0.5], normal: [0.0, 0.0, -1.0], color },
-            Vertex { position: [-0.5, -0.5, -0.5], normal: [0.0, 0.0, -1.0], color },
-            Vertex { position: [-0.5,  0.5, -0.5], normal: [0.0, 0.0, -1.0], color },
-            Vertex { position: [ 0.5, -0.5, -0.5], normal: [0.0, 0.0, -1.0], color },
-            Vertex { position: [-0.5,  0.5, -0.5], normal: [0.0, 0.0, -1.0], color },
-            Vertex { position: [ 0.5,  0.5, -0.5], normal: [0.0, 0.0, -1.0], color },
-            
-            // Top face (normal: +Y)
-            Vertex { position: [-0.5,  0.5,  0.5], normal: [0.0, 1.0, 0.0], color },
-            Vertex { position: [ 0.5,  0.5,  0.5], normal: [0.0, 1.0, 0.0], color },
-            Vertex { position: [ 0.5,  0.5, -0.5], normal: [0.0, 1.0, 0.0], color },
-            Vertex { position: [-0.5,  0.5,  0.5], normal: [0.0, 1.0, 0.0], color },
-            Vertex { position: [ 0.5,  0.5, -0.5], normal: [0.0, 1.0, 0.0], color },
-            Vertex { position: [-0.5,  0.5, -0.5], normal: [0.0, 1.0, 0.0], color },
-            
-            // Bottom face (normal: -Y)
-            Vertex { position: [-0.5, -0.5, -0.5], normal: [0.0, -1.0, 0.0], color },
-            Vertex { position: [ 0.5, -0.5, -0.5], normal: [0.0, -1.0, 0.0], color },
-            Vertex { position: [ 0.5, -0.5,  0.5], normal: [0.0, -1.0, 0.0], color },
-            Vertex { position: [-0.5, -0.5, -0.5], normal: [0.0, -1.0, 0.0], color },
-            Vertex { position: [ 0.5, -0.5,  0.5], normal: [0.0, -1.0, 0.0], color },
-            Vertex { position: [-0.5, -0.5,  0.5], normal: [0.0, -1.0, 0.0], color },
-            
-            // Right face (normal: +X)
-            Vertex { position: [ 0.5, -0.5,  0.5], normal: [1.0, 0.0, 0.0], color },
-            Vertex { position: [ 0.5, -0.5, -0.5], normal: [1.0, 0.0, 0.0], color },
-            Vertex { position: [ 0.5,  0.5, -0.5], normal: [1.0, 0.0, 0.0], color },
-            Vertex { position: [ 0.5, -0.5,  0.5], normal: [1.0, 0.0, 0.0], color },
-            Vertex { position: [ 0.5,  0.5, -0.5], normal: [1.0, 0.0, 0.0], color },
-            Vertex { position: [ 0.5,  0.5,  0.5], normal: [1.0, 0.0, 0.0], color },
-            
-            // Left face (normal: -X)
-            Vertex { position: [-0.5, -0.5, -0.5], normal: [-1.0, 0.0, 0.0], color },
-            Vertex { position: [-0.5, -0.5,  0.5], normal: [-1.0, 0.0, 0.0], color },
-            Vertex { position: [-0.5,  0.5,  0.5], normal: [-1.0, 0.0, 0.0], color },
-            Vertex { position: [-0.5, -0.5, -0.5], normal: [-1.0, 0.0, 0.0], color },
-            Vertex { position: [-0.5,  0.5,  0.5], normal: [-1.0, 0.0, 0.0], color },
-            Vertex { position: [-0.5,  0.5, -0.5], normal: [-1.0, 0.0, 0.0], color },
-        ];
+    // Helper to create vertex buffer from custom mesh data
+    fn create_mesh_vertex_buffer(&self, vertices: &[[f32; 9]], indices: &[u32]) -> metal::Buffer {
+        // Convert indexed mesh to expanded vertex list (one vertex per index)
+        let mut expanded_vertices = Vec::with_capacity(indices.len());
         
-        device.new_buffer_with_data(
-            vertices.as_ptr() as *const _,
-            (vertices.len() * mem::size_of::<Vertex>()) as u64,
-            MTLResourceOptions::CPUCacheModeDefaultCache,
-        )
-    }
-
-    // Helper to create sphere vertices with a specific color using UV sphere algorithm
-    fn create_colored_sphere_vertices(device: &metal::DeviceRef, color: [f32; 3], segments: u32, rings: u32) -> metal::Buffer {
-        let mut vertices = Vec::new();
-        
-        // Generate sphere vertices
-        for ring in 0..=rings {
-            let theta = ring as f32 * std::f32::consts::PI / rings as f32;
-            let sin_theta = theta.sin();
-            let cos_theta = theta.cos();
-            
-            for segment in 0..=segments {
-                let phi = segment as f32 * 2.0 * std::f32::consts::PI / segments as f32;
-                let sin_phi = phi.sin();
-                let cos_phi = phi.cos();
-                
-                let x = cos_phi * sin_theta;
-                let y = cos_theta;
-                let z = sin_phi * sin_theta;
-                
-                // For a sphere, the normal at each vertex is the same as the normalized position
-                // Positions are scaled to radius 0.5 to match cube size
-                vertices.push(Vertex {
-                    position: [x * 0.5, y * 0.5, z * 0.5],
-                    normal: [x, y, z], // Normalized normal (same as unit sphere position)
-                    color,
-                });
-            }
+        for &index in indices {
+            let v = &vertices[index as usize];
+            expanded_vertices.push(Vertex {
+                position: [v[0], v[1], v[2]],
+                normal: [v[3], v[4], v[5]],
+                color: [v[6], v[7], v[8]],
+            });
         }
         
-        // Generate triangle indices
-        let mut triangles = Vec::new();
-        for ring in 0..rings {
-            for segment in 0..segments {
-                let current = ring * (segments + 1) + segment;
-                let next = current + segments + 1;
-                
-                // First triangle
-                triangles.push(vertices[current as usize]);
-                triangles.push(vertices[next as usize]);
-                triangles.push(vertices[(current + 1) as usize]);
-                
-                // Second triangle
-                triangles.push(vertices[(current + 1) as usize]);
-                triangles.push(vertices[next as usize]);
-                triangles.push(vertices[(next + 1) as usize]);
-            }
-        }
-        
-        device.new_buffer_with_data(
-            triangles.as_ptr() as *const _,
-            (triangles.len() * mem::size_of::<Vertex>()) as u64,
+        self.layer.device().new_buffer_with_data(
+            expanded_vertices.as_ptr() as *const _,
+            (expanded_vertices.len() * mem::size_of::<Vertex>()) as u64,
             MTLResourceOptions::CPUCacheModeDefaultCache,
         )
     }
@@ -292,69 +194,6 @@ impl MetalRenderer {
         depth_stencil_descriptor.set_depth_write_enabled(true);
         let depth_stencil_state = device.new_depth_stencil_state(&depth_stencil_descriptor);
         
-        // Create full 3D cube vertices (36 vertices for 6 faces)
-        let vertices = [
-            // Front face (red, normal: +Z)
-            Vertex { position: [-1.0, -1.0,  1.0], normal: [0.0, 0.0, 1.0], color: [1.0, 0.0, 0.0] },
-            Vertex { position: [ 1.0, -1.0,  1.0], normal: [0.0, 0.0, 1.0], color: [1.0, 0.0, 0.0] },
-            Vertex { position: [ 1.0,  1.0,  1.0], normal: [0.0, 0.0, 1.0], color: [1.0, 0.0, 0.0] },
-            Vertex { position: [-1.0, -1.0,  1.0], normal: [0.0, 0.0, 1.0], color: [1.0, 0.0, 0.0] },
-            Vertex { position: [ 1.0,  1.0,  1.0], normal: [0.0, 0.0, 1.0], color: [1.0, 0.0, 0.0] },
-            Vertex { position: [-1.0,  1.0,  1.0], normal: [0.0, 0.0, 1.0], color: [1.0, 0.0, 0.0] },
-            
-            // Back face (green, normal: -Z)
-            Vertex { position: [ 1.0, -1.0, -1.0], normal: [0.0, 0.0, -1.0], color: [0.0, 1.0, 0.0] },
-            Vertex { position: [-1.0, -1.0, -1.0], normal: [0.0, 0.0, -1.0], color: [0.0, 1.0, 0.0] },
-            Vertex { position: [-1.0,  1.0, -1.0], normal: [0.0, 0.0, -1.0], color: [0.0, 1.0, 0.0] },
-            Vertex { position: [ 1.0, -1.0, -1.0], normal: [0.0, 0.0, -1.0], color: [0.0, 1.0, 0.0] },
-            Vertex { position: [-1.0,  1.0, -1.0], normal: [0.0, 0.0, -1.0], color: [0.0, 1.0, 0.0] },
-            Vertex { position: [ 1.0,  1.0, -1.0], normal: [0.0, 0.0, -1.0], color: [0.0, 1.0, 0.0] },
-            
-            // Top face (blue, normal: +Y)
-            Vertex { position: [-1.0,  1.0,  1.0], normal: [0.0, 1.0, 0.0], color: [0.0, 0.0, 1.0] },
-            Vertex { position: [ 1.0,  1.0,  1.0], normal: [0.0, 1.0, 0.0], color: [0.0, 0.0, 1.0] },
-            Vertex { position: [ 1.0,  1.0, -1.0], normal: [0.0, 1.0, 0.0], color: [0.0, 0.0, 1.0] },
-            Vertex { position: [-1.0,  1.0,  1.0], normal: [0.0, 1.0, 0.0], color: [0.0, 0.0, 1.0] },
-            Vertex { position: [ 1.0,  1.0, -1.0], normal: [0.0, 1.0, 0.0], color: [0.0, 0.0, 1.0] },
-            Vertex { position: [-1.0,  1.0, -1.0], normal: [0.0, 1.0, 0.0], color: [0.0, 0.0, 1.0] },
-            
-            // Bottom face (yellow, normal: -Y)
-            Vertex { position: [-1.0, -1.0, -1.0], normal: [0.0, -1.0, 0.0], color: [1.0, 1.0, 0.0] },
-            Vertex { position: [ 1.0, -1.0, -1.0], normal: [0.0, -1.0, 0.0], color: [1.0, 1.0, 0.0] },
-            Vertex { position: [ 1.0, -1.0,  1.0], normal: [0.0, -1.0, 0.0], color: [1.0, 1.0, 0.0] },
-            Vertex { position: [-1.0, -1.0, -1.0], normal: [0.0, -1.0, 0.0], color: [1.0, 1.0, 0.0] },
-            Vertex { position: [ 1.0, -1.0,  1.0], normal: [0.0, -1.0, 0.0], color: [1.0, 1.0, 0.0] },
-            Vertex { position: [-1.0, -1.0,  1.0], normal: [0.0, -1.0, 0.0], color: [1.0, 1.0, 0.0] },
-            
-            // Right face (magenta, normal: +X)
-            Vertex { position: [ 1.0, -1.0,  1.0], normal: [1.0, 0.0, 0.0], color: [1.0, 0.0, 1.0] },
-            Vertex { position: [ 1.0, -1.0, -1.0], normal: [1.0, 0.0, 0.0], color: [1.0, 0.0, 1.0] },
-            Vertex { position: [ 1.0,  1.0, -1.0], normal: [1.0, 0.0, 0.0], color: [1.0, 0.0, 1.0] },
-            Vertex { position: [ 1.0, -1.0,  1.0], normal: [1.0, 0.0, 0.0], color: [1.0, 0.0, 1.0] },
-            Vertex { position: [ 1.0,  1.0, -1.0], normal: [1.0, 0.0, 0.0], color: [1.0, 0.0, 1.0] },
-            Vertex { position: [ 1.0,  1.0,  1.0], normal: [1.0, 0.0, 0.0], color: [1.0, 0.0, 1.0] },
-            
-            // Left face (cyan, normal: -X)
-            Vertex { position: [-1.0, -1.0, -1.0], normal: [-1.0, 0.0, 0.0], color: [0.0, 1.0, 1.0] },
-            Vertex { position: [-1.0, -1.0,  1.0], normal: [-1.0, 0.0, 0.0], color: [0.0, 1.0, 1.0] },
-            Vertex { position: [-1.0,  1.0,  1.0], normal: [-1.0, 0.0, 0.0], color: [0.0, 1.0, 1.0] },
-            Vertex { position: [-1.0, -1.0, -1.0], normal: [-1.0, 0.0, 0.0], color: [0.0, 1.0, 1.0] },
-            Vertex { position: [-1.0,  1.0,  1.0], normal: [-1.0, 0.0, 0.0], color: [0.0, 1.0, 1.0] },
-            Vertex { position: [-1.0,  1.0, -1.0], normal: [-1.0, 0.0, 0.0], color: [0.0, 1.0, 1.0] },
-        ];
-        
-        let vertex_buffer = device.new_buffer_with_data(
-            vertices.as_ptr() as *const _,
-            (vertices.len() * std::mem::size_of::<Vertex>()) as u64,
-            MTLResourceOptions::CPUCacheModeDefaultCache,
-        );
-        
-        // Create uniform buffer
-        let uniform_buffer = device.new_buffer(
-            std::mem::size_of::<Uniforms>() as u64,
-            MTLResourceOptions::CPUCacheModeDefaultCache,
-        );
-        
         // Create light buffer with default lighting
         let light_data = LightUniforms::default();
         let light_buffer = device.new_buffer_with_data(
@@ -374,11 +213,8 @@ impl MetalRenderer {
             layer,
             pipeline_state,
             depth_stencil_state,
-            vertex_buffer,
-            uniform_buffer,
             light_buffer,
             camera,
-            start_time: Instant::now(),
         }
     }
     
@@ -405,76 +241,17 @@ impl MetalRenderer {
         &self.camera
     }
     
-    pub fn render(&mut self) {
-        let drawable = match self.layer.next_drawable() {
-            Some(drawable) => drawable,
-            None => return,
-        };
-        
-        // Calculate rotation based on elapsed time
-        let elapsed = self.start_time.elapsed().as_secs_f32();
-        let rotation_y = Quat::from_rotation_y(elapsed * 0.5); // Rotate around Y axis
-        let rotation_x = Quat::from_rotation_x(elapsed * 0.3); // Rotate around X axis
-        let rotation = rotation_y * rotation_x;
-        
-        // Create model matrix with rotation
-        let model = Mat4::from_quat(rotation);
-        
-        let command_buffer = self.command_queue.new_command_buffer();
-        let render_pass_descriptor = metal::RenderPassDescriptor::new();
-        
-        // Color attachment
-        let color_attachment = render_pass_descriptor
-            .color_attachments()
-            .object_at(0)
-            .unwrap();
-        
-        color_attachment.set_texture(Some(drawable.texture()));
-        color_attachment.set_load_action(metal::MTLLoadAction::Clear);
-        color_attachment.set_clear_color(metal::MTLClearColor::new(0.1, 0.1, 0.15, 1.0));
-        color_attachment.set_store_action(metal::MTLStoreAction::Store);
-        
-        // Depth attachment
-        let depth_texture_descriptor = metal::TextureDescriptor::new();
-        depth_texture_descriptor.set_pixel_format(metal::MTLPixelFormat::Depth32Float);
-        depth_texture_descriptor.set_width(drawable.texture().width());
-        depth_texture_descriptor.set_height(drawable.texture().height());
-        depth_texture_descriptor.set_usage(metal::MTLTextureUsage::RenderTarget);
-        depth_texture_descriptor.set_storage_mode(metal::MTLStorageMode::Private);
-        
-        let depth_texture = self.layer.device().new_texture(&depth_texture_descriptor);
-        
-        let depth_attachment = render_pass_descriptor.depth_attachment().unwrap();
-        depth_attachment.set_texture(Some(&depth_texture));
-        depth_attachment.set_load_action(metal::MTLLoadAction::Clear);
-        depth_attachment.set_clear_depth(1.0);
-        depth_attachment.set_store_action(metal::MTLStoreAction::DontCare);
-        
-        let encoder = command_buffer.new_render_command_encoder(render_pass_descriptor);
-        
-        // Draw the cube
-        encoder.set_render_pipeline_state(&self.pipeline_state);
-        encoder.set_depth_stencil_state(&self.depth_stencil_state);
-        encoder.set_vertex_buffer(0, Some(&self.vertex_buffer), 0);
-        
-        // Update uniforms with model-view-projection matrix
-        let mvp = self.camera.view_projection_matrix() * model;
-        let uniforms = Uniforms {
-            model_view_projection: mvp.to_cols_array_2d(),
-        };
-        
-        unsafe {
-            let uniform_ptr = self.uniform_buffer.contents() as *mut Uniforms;
-            std::ptr::write(uniform_ptr, uniforms);
-        }
-        
-        encoder.set_vertex_buffer(1, Some(&self.uniform_buffer), 0);
-        encoder.draw_primitives(metal::MTLPrimitiveType::Triangle, 0, 36);
-        
-        encoder.end_encoding();
-        
-        command_buffer.present_drawable(drawable);
-        command_buffer.commit();
+    /// Renders a scene by extracting its render data and drawing all entities.
+    ///
+    /// This is a convenience method that calls `scene.get_render_data()` and then
+    /// delegates to `render_with_transforms_and_colors()`.
+    ///
+    /// # Arguments
+    ///
+    /// * `scene` - The scene to render
+    pub fn render(&mut self, scene: &crate::scene::Scene) {
+        let render_data = scene.get_render_data();
+        self.render_with_transforms_and_colors(&render_data);
     }
     
     pub fn render_with_transforms_and_colors(&mut self, render_data: &[(crate::math::Transform, [f32; 3], crate::ecs::RenderShape)]) {
@@ -523,15 +300,13 @@ impl MetalRenderer {
         encoder.set_depth_stencil_state(&self.depth_stencil_state);
         
         // Draw each transform with its specified color and shape from ECS
-        for (transform, color, shape) in render_data.iter() {
-            // Create vertex buffer based on shape type
+        for (transform, _color, shape) in render_data.iter() {
+            // All shapes are now meshes - extract vertex buffer
             let (vertex_buffer, vertex_count) = match shape {
-                crate::ecs::RenderShape::Cube => {
-                    (Self::create_colored_cube_vertices(self.layer.device(), *color), 36)
-                }
-                crate::ecs::RenderShape::Sphere => {
-                    // 20 segments and 20 rings gives a nice smooth sphere
-                    (Self::create_colored_sphere_vertices(self.layer.device(), *color, 20, 20), 20 * 20 * 6)
+                crate::ecs::RenderShape::Mesh { vertices, indices } => {
+                    let vertex_count = indices.len() as u64;
+                    let vertex_buffer = self.create_mesh_vertex_buffer(vertices, indices);
+                    (vertex_buffer, vertex_count)
                 }
             };
             
@@ -781,15 +556,17 @@ mod tests {
 
     #[test]
     fn test_render_shape_variants() {
-        // Test that both RenderShape variants can be created
+        // Test that both cube and sphere generate different mesh data
         use crate::ecs::RenderShape;
         
-        let cube = RenderShape::Cube;
-        let sphere = RenderShape::Sphere;
+        let cube = RenderShape::cube([1.0, 0.0, 0.0]);
+        let sphere = RenderShape::sphere([0.0, 1.0, 0.0], 20, 20);
         
-        // Verify they're different
-        assert!(matches!(cube, RenderShape::Cube));
-        assert!(matches!(sphere, RenderShape::Sphere));
+        // Both should be Mesh variants
+        assert!(matches!(cube, RenderShape::Mesh { .. }));
+        assert!(matches!(sphere, RenderShape::Mesh { .. }));
+        // They should have different data
+        assert_ne!(cube, sphere);
     }
 
     #[test]
@@ -798,17 +575,18 @@ mod tests {
         use crate::ecs::RenderShape;
         
         let render_data = vec![
-            (Transform::from_position(Vec3::new(0.0, 0.0, 0.0)), [1.0, 0.0, 0.0], RenderShape::Cube),
-            (Transform::from_position(Vec3::new(2.0, 0.0, 0.0)), [0.0, 1.0, 0.0], RenderShape::Sphere),
-            (Transform::from_position(Vec3::new(4.0, 0.0, 0.0)), [0.0, 0.0, 1.0], RenderShape::Cube),
-            (Transform::from_position(Vec3::new(6.0, 0.0, 0.0)), [1.0, 1.0, 0.0], RenderShape::Sphere),
+            (Transform::from_position(Vec3::new(0.0, 0.0, 0.0)), [1.0, 0.0, 0.0], RenderShape::cube([1.0, 0.0, 0.0])),
+            (Transform::from_position(Vec3::new(2.0, 0.0, 0.0)), [0.0, 1.0, 0.0], RenderShape::sphere([0.0, 1.0, 0.0], 20, 20)),
+            (Transform::from_position(Vec3::new(4.0, 0.0, 0.0)), [0.0, 0.0, 1.0], RenderShape::cube([0.0, 0.0, 1.0])),
+            (Transform::from_position(Vec3::new(6.0, 0.0, 0.0)), [1.0, 1.0, 0.0], RenderShape::sphere([1.0, 1.0, 0.0], 20, 20)),
         ];
         
         assert_eq!(render_data.len(), 4);
-        assert!(matches!(render_data[0].2, RenderShape::Cube));
-        assert!(matches!(render_data[1].2, RenderShape::Sphere));
-        assert!(matches!(render_data[2].2, RenderShape::Cube));
-        assert!(matches!(render_data[3].2, RenderShape::Sphere));
+        // All should be Mesh variants now
+        assert!(matches!(render_data[0].2, RenderShape::Mesh { .. }));
+        assert!(matches!(render_data[1].2, RenderShape::Mesh { .. }));
+        assert!(matches!(render_data[2].2, RenderShape::Mesh { .. }));
+        assert!(matches!(render_data[3].2, RenderShape::Mesh { .. }));
     }
 
     #[test]
