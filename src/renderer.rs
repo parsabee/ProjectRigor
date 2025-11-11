@@ -44,8 +44,8 @@ pub struct RendererConfig {
 impl Default for RendererConfig {
     fn default() -> Self {
         Self {
-            camera_position: Vec3::new(8.0, 4.0, 12.0), // Match Camera::new() default
-            camera_target: Vec3::new(6.0, 0.0, 0.0),    // Match Camera::new() default
+            camera_position: Vec3::new(0.0, 5.0, 8.0), // Inside Cornell box looking at back wall
+            camera_target: Vec3::new(0.0, 5.0, -5.0),   // Look at back wall
             lighting: crate::scene::LightUniforms::default(),
             render_mode: crate::RenderingMode::Rasterization,
         }
@@ -190,6 +190,8 @@ impl MetalRenderer {
         camera.set_position(config.camera_position);
         camera.set_target(config.camera_target);
         
+        println!("Renderer initialized with mode: {:?}", config.render_mode);
+        
         Self {
             device,
             command_queue,
@@ -238,8 +240,12 @@ impl MetalRenderer {
     /// * `scene` - The scene to render
     pub fn render(&mut self, scene: &crate::scene::Scene) {
         match self.render_mode {
-            crate::RenderingMode::Rasterization => self.render_rasterization(scene),
-            crate::RenderingMode::SoftwareRayTracing => self.render_software_raytracing(scene),
+            crate::RenderingMode::Rasterization => {
+                self.render_rasterization(scene)
+            },
+            crate::RenderingMode::SoftwareRayTracing => {
+                self.render_software_raytracing(scene)
+            },
             crate::RenderingMode::HardwareRayTracing => {
                 // TODO: Implement hardware ray tracing with Metal's native API
                 // For now, use software ray tracing as fallback
@@ -400,9 +406,9 @@ impl MetalRenderer {
             MTLResourceOptions::StorageModeShared,
         );
         
-        // Create output texture
+        // Create output texture (use BGRA to match the drawable format)
         let texture_descriptor = metal::TextureDescriptor::new();
-        texture_descriptor.set_pixel_format(metal::MTLPixelFormat::RGBA8Unorm);
+        texture_descriptor.set_pixel_format(metal::MTLPixelFormat::BGRA8Unorm);
         texture_descriptor.set_width(width);
         texture_descriptor.set_height(height);
         texture_descriptor.set_usage(metal::MTLTextureUsage::ShaderWrite | metal::MTLTextureUsage::ShaderRead);
@@ -419,6 +425,15 @@ impl MetalRenderer {
         compute_encoder.set_buffer(0, Some(&triangle_buffer), 0);
         compute_encoder.set_buffer(1, Some(&params_buffer), 0);
         compute_encoder.set_buffer(2, Some(&self.light_buffer), 0);
+        
+        // Create triangle count buffer
+        let triangle_count = triangles.len() as u32;
+        let triangle_count_buffer = self.device.new_buffer_with_data(
+            &triangle_count as *const u32 as *const _,
+            std::mem::size_of::<u32>() as u64,
+            MTLResourceOptions::StorageModeShared,
+        );
+        compute_encoder.set_buffer(3, Some(&triangle_count_buffer), 0);
         
         // Calculate thread groups
         let thread_group_size = metal::MTLSize {

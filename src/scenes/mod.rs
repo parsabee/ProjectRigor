@@ -12,5 +12,7 @@
 //! # Available Scenes
 //!
 //! - [`demo_scene::DemoScene`] - A demonstration scene with falling cubes and spheres
+//! - [`cornell_box::CornellBox`] - Classic Cornell box for ray tracing testing
 
 pub mod demo_scene;
+pub mod cornell_box;

@@ -11,7 +11,7 @@
 
 use crate::renderer::MetalRenderer;
 use crate::scene::{Scene, SceneBuilder};
-use crate::scenes::demo_scene::DemoScene;
+use crate::scenes::cornell_box::CornellBox;
 use crate::RenderingMode;
 use std::collections::HashSet;
 use winit::application::ApplicationHandler;
@@ -95,7 +95,7 @@ impl App {
     /// ```
     pub fn new_with_render_mode(render_mode: RenderingMode) -> Self {
         let mut scene = Scene::new();
-        DemoScene::build(&mut scene);
+        CornellBox::build(&mut scene);
         
         Self {
             window: None,
@@ -114,6 +114,24 @@ impl App {
     /// Returns the current rendering mode.
     pub fn render_mode(&self) -> RenderingMode {
         self.render_mode
+    }
+
+    /// Sets the scene to a new scene, replacing the current one.
+    ///
+    /// # Arguments
+    ///
+    /// * `scene` - The new scene to use
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use projectrigor::{App, scene::Scene};
+    ///
+    /// let mut app = App::new();
+    /// app.set_scene(Scene::cornell_box());
+    /// ```
+    pub fn set_scene(&mut self, scene: Scene) {
+        self.scene = scene;
     }
 }
 
