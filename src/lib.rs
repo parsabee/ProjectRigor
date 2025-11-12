@@ -89,6 +89,7 @@ pub mod camera;
 pub mod ecs;
 pub mod math;
 pub mod physics;
+pub mod raytracer;
 pub mod renderer;
 pub mod scene;
 pub mod scenes;
@@ -97,6 +98,7 @@ pub use app::App;
 pub use camera::Camera;
 pub use math::Transform;
 pub use physics::PhysicsWorld;
+pub use raytracer::trace_ray;
 pub use renderer::MetalRenderer;
 pub use scene::{Scene, SceneBuilder};
 

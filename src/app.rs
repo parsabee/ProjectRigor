@@ -128,7 +128,7 @@ impl App {
     /// use projectrigor::{App, scene::Scene};
     ///
     /// let mut app = App::new();
-    /// app.set_scene(Scene::cornell_box());
+    /// app.set_scene(Scene::new());
     /// ```
     pub fn set_scene(&mut self, scene: Scene) {
         self.scene = scene;

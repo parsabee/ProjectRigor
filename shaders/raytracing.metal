@@ -6,6 +6,9 @@
 #include <metal_stdlib>
 using namespace metal;
 
+// Global constants
+constant float EPSILON = 0.000001;
+
 struct Triangle {
     packed_float3 p0;
     packed_float3 p1;
@@ -20,7 +23,9 @@ struct RayTracingParams {
     packed_float3 camera_position;
     float aspect_ratio;
     packed_float3 camera_target;
-    float triangle_count;
+    int max_depth;              // Configurable max reflection depth
+    packed_float3 background_color;
+    float default_reflectivity; // Default reflectivity for surfaces
 };
 
 struct LightUniforms {
@@ -43,8 +48,6 @@ bool ray_triangle_intersection(
     thread float& u,
     thread float& v
 ) {
-    const float EPSILON = 0.000001;
-    
     float3 edge1 = tri.p1 - tri.p0;
     float3 edge2 = tri.p2 - tri.p0;
     
@@ -75,91 +78,130 @@ bool ray_triangle_intersection(
     return t > EPSILON;
 }
 
-// Trace a ray and return the color with reflections
+// Check if a ray is occluded (for shadow rays)
+bool is_occluded(
+    float3 ray_origin,
+    float3 ray_dir,
+    float max_distance,
+    constant Triangle* triangles,
+    uint triangle_count
+) {
+    for (uint i = 0; i < triangle_count; i++) {
+        float t, u, v;
+        if (ray_triangle_intersection(ray_origin, ray_dir, triangles[i], t, u, v)) {
+            if (t < max_distance) {
+                return true; // Found an occluder
+            }
+        }
+    }
+    return false; // No occlusion
+}
+
+// Iterative ray tracing to avoid Metal recursion bugs
 float3 trace_ray(
     float3 ray_origin,
     float3 ray_dir,
     constant Triangle* triangles,
     uint triangle_count,
     constant LightUniforms& light,
-    int depth
+    constant RayTracingParams& params
 ) {
-    const int MAX_DEPTH = 2;
-    const float EPSILON = 0.001;
-    const float REFLECTIVITY = 0.15;
+    const int MAX_BOUNCES = 3; // Support up to 3 bounces iteratively
     
-    if (depth >= MAX_DEPTH) {
-        return float3(0.0);
-    }
+    float3 final_color = float3(0.0);
+    float3 accumulated_reflectivity = float3(1.0);
     
-    // Find closest intersection
-    float closest_t = INFINITY;
-    int closest_idx = -1;
-    float closest_u = 0.0;
-    float closest_v = 0.0;
+    float3 current_origin = ray_origin;
+    float3 current_dir = ray_dir;
     
-    for (uint i = 0; i < triangle_count; i++) {
-        float t, tri_u, tri_v;
-        if (ray_triangle_intersection(ray_origin, ray_dir, triangles[i], t, tri_u, tri_v)) {
-            if (t < closest_t) {
-                closest_t = t;
-                closest_idx = i;
-                closest_u = tri_u;
-                closest_v = tri_v;
+    for (int bounce = 0; bounce < MAX_BOUNCES && bounce < params.max_depth; bounce++) {
+        // Find closest intersection
+        float closest_t = INFINITY;
+        int closest_idx = -1;
+        float closest_u = 0.0;
+        float closest_v = 0.0;
+        
+        for (uint i = 0; i < triangle_count; i++) {
+            float t, tri_u, tri_v;
+            if (ray_triangle_intersection(current_origin, current_dir, triangles[i], t, tri_u, tri_v)) {
+                if (t < closest_t) {
+                    closest_t = t;
+                    closest_idx = i;
+                    closest_u = tri_u;
+                    closest_v = tri_v;
+                }
             }
         }
-    }
-    
-    if (closest_idx < 0) {
-        // No intersection - return background color
-        return float3(0.2, 0.0, 0.2);  // dark purple
-    }
-    
-    Triangle tri = triangles[closest_idx];
-    float w = 1.0 - closest_u - closest_v;
-    
-    // Interpolate normal
-    float3 normal = normalize(w * tri.n0 + closest_u * tri.n1 + closest_v * tri.n2);
-    
-    // Calculate hit point
-    float3 hit_point = ray_origin + ray_dir * closest_t;
-    
-    // View direction (from hit point to camera)
-    float3 view_dir = -ray_dir;
-    
-    // Phong lighting
-    float3 light_dir_normalized = normalize(light.direction);
-    float ndotl = max(dot(normal, -light_dir_normalized), 0.0);
-    
-    // Ambient component
-    float3 ambient = light.ambient_intensity * light.color;
-    
-    // Diffuse component
-    float3 diffuse = light.diffuse_intensity * ndotl * light.color;
-    
-    // Specular component (Blinn-Phong)
-    float3 specular = float3(0.0);
-    if (ndotl > 0.0) {
-        float3 half_dir = normalize(-light_dir_normalized + view_dir);
-        float spec = pow(max(dot(normal, half_dir), 0.0), light.shininess);
-        specular = light.specular_intensity * spec * light.color;
-    }
-    
-    // Combine lighting components
-    float3 lighting = ambient + diffuse + specular;
-    float3 local_color = tri.color * lighting;
-    
-    // Trace reflections (if not at max depth)
-    if (depth < MAX_DEPTH - 1) {
-        float3 reflection_dir = reflect(ray_dir, normal);
-        float3 reflection_origin = hit_point + normal * EPSILON;
-        float3 reflection_color = trace_ray(reflection_origin, reflection_dir, triangles, triangle_count, light, depth + 1);
         
-        // Blend local color with reflection
-        return mix(local_color, reflection_color, REFLECTIVITY);
+        if (closest_idx < 0) {
+            // No intersection - add background contribution
+            final_color += accumulated_reflectivity * params.background_color;
+            break;
+        }
+        
+        Triangle tri = triangles[closest_idx];
+        float w = 1.0 - closest_u - closest_v;
+        
+        // Interpolate normal
+        float3 normal = normalize(w * tri.n0 + closest_u * tri.n1 + closest_v * tri.n2);
+        
+        // Calculate hit point
+        float3 hit_point = current_origin + current_dir * closest_t;
+        
+        // Phong lighting
+        float3 light_dir_normalized = normalize(light.direction);
+        float ndotl = max(dot(normal, -light_dir_normalized), 0.0);
+        
+        // Check for shadows by casting a ray toward the light
+        bool in_shadow = false;
+        if (ndotl > 0.0) {
+            // Cast shadow ray from hit point toward light
+            float3 shadow_ray_origin = hit_point + normal * EPSILON;
+            float3 shadow_ray_dir = -light_dir_normalized;
+            
+            // Check if occluded (directional light, so check infinite distance)
+            in_shadow = is_occluded(shadow_ray_origin, shadow_ray_dir, INFINITY, triangles, triangle_count);
+        }
+        
+        // Ambient component (always present)
+        float3 ambient = light.ambient_intensity * light.color;
+        
+        // Diffuse and specular only if not in shadow
+        float3 diffuse = float3(0.0);
+        float3 specular = float3(0.0);
+        
+        if (!in_shadow && ndotl > 0.0) {
+            // Diffuse component
+            diffuse = light.diffuse_intensity * ndotl * light.color;
+            
+            // Specular component (Blinn-Phong)
+            float3 view_dir = -current_dir;
+            float3 half_dir = normalize(-light_dir_normalized + view_dir);
+            float spec = pow(max(dot(normal, half_dir), 0.0), light.shininess);
+            specular = light.specular_intensity * spec * light.color;
+        }
+        
+        // Combine lighting components
+        float3 lighting = ambient + diffuse + specular;
+        float3 local_color = tri.color * lighting;
+        
+        // Add this bounce's contribution
+        final_color += accumulated_reflectivity * local_color * (1.0 - params.default_reflectivity);
+        
+        // Check if we should continue bouncing
+        if (bounce >= params.max_depth - 1 || bounce >= MAX_BOUNCES - 1) {
+            break;
+        }
+        
+        // Update accumulated reflectivity for next bounce
+        accumulated_reflectivity *= params.default_reflectivity;
+        
+        // Set up reflection ray for next iteration
+        current_dir = reflect(current_dir, normal);
+        current_origin = hit_point + normal * EPSILON;
     }
     
-    return local_color;
+    return final_color;
 }
 
 kernel void raytrace_kernel(
@@ -187,8 +229,8 @@ kernel void raytrace_kernel(
     // NDC coordinates (-1 to 1)
     float aspect = float(width) / float(height);
     float2 ndc = float2(
-        (float(gid.x) / float(width) - 0.5) * 2.0,
-        (0.5 - float(gid.y) / float(height)) * 2.0
+        ((float(gid.x) + 0.5) / float(width) - 0.5) * 2.0,
+        (0.5 - (float(gid.y) + 0.5) / float(height)) * 2.0
     );
     
     float fov = 60.0 * 3.14159265 / 180.0;
@@ -202,7 +244,7 @@ kernel void raytrace_kernel(
     );
     
     // Trace the ray with reflections using the trace_ray function
-    float3 color = trace_ray(params.camera_position, ray_dir, triangles, triangle_count, light, 0);
+    float3 color = trace_ray(params.camera_position, ray_dir, triangles, triangle_count, light, params);
     
     // Write to output texture (BGRA format)
     output_texture.write(float4(color, 1.0), gid);
