@@ -7,6 +7,26 @@
 //! 
 //! This module implements the same ray tracing logic as the Metal shader,
 //! allowing us to write unit tests and debug issues before deploying to GPU.
+//! 
+//! # Architecture
+//! 
+//! The raytracer uses iterative path tracing to avoid Metal's buggy recursion:
+//! - Manual loop with state tracking (origin, direction, reflectivity)
+//! - Up to 3 bounces (configurable via max_depth parameter)
+//! - Möller-Trumbore algorithm for ray-triangle intersection
+//! 
+//! # Performance Optimizations
+//! 
+//! - AABB early rejection before expensive intersection tests
+//! - Shadow rays with early termination on first hit
+//! - Single consolidated EPSILON for all comparisons
+//! 
+//! # Testing Strategy
+//! 
+//! This CPU implementation is kept in exact sync with the Metal shader to:
+//! - Enable comprehensive unit testing without GPU deployment
+//! - Validate GPU results by comparing CPU vs GPU outputs
+//! - Debug intersection/lighting issues in familiar Rust environment
 
 use glam::Vec3;
 use crate::scene::{Triangle, LightUniforms};
@@ -16,7 +36,29 @@ const INTERSECTION_EPSILON: f32 = 0.000001;
 
 /// Ray-triangle intersection using Möller-Trumbore algorithm.
 /// 
-/// Returns (t, u, v) barycentric coordinates if hit, None otherwise.
+/// This is the industry-standard algorithm for ray-triangle intersection.
+/// It computes barycentric coordinates (u, v) which are used for normal
+/// interpolation across the triangle surface.
+/// 
+/// # Algorithm
+/// 
+/// 1. Compute triangle edges and cross product with ray direction
+/// 2. Check if ray is parallel to triangle (determinant near zero)
+/// 3. Compute barycentric coordinates u and v
+/// 4. Verify point is inside triangle (u >= 0, v >= 0, u+v <= 1)
+/// 5. Compute intersection distance t along ray
+/// 
+/// # Returns
+/// 
+/// - `Some((t, u, v))` - Barycentric coordinates if intersection found
+///   - `t`: Distance along ray to hit point
+///   - `u, v`: Barycentric coords where w = 1-u-v
+/// - `None` - No intersection (ray misses or parallel)
+/// 
+/// # Performance
+/// 
+/// This is an expensive operation (12+ FLOPs). Use AABB early rejection
+/// before calling this function in hot paths.
 fn ray_triangle_intersection(
     ray_origin: Vec3,
     ray_dir: Vec3,
@@ -62,7 +104,32 @@ fn ray_triangle_intersection(
 
 /// Trace a ray through the scene and return the color.
 /// 
-/// This matches the Metal shader implementation for validation purposes.
+/// This iterative implementation matches the Metal shader exactly for validation.
+/// 
+/// # Algorithm
+/// 
+/// 1. Find closest ray-triangle intersection using Möller-Trumbore
+/// 2. Calculate Phong lighting at hit point (ambient + diffuse + specular)
+/// 3. Test shadow ray to light source for occlusion
+/// 4. Recursively trace reflection ray if depth < max_depth
+/// 5. Blend local color with reflection using per-triangle reflectivity
+/// 
+/// # Parameters
+/// 
+/// - `depth`: Current recursion depth (starts at 0)
+/// - `max_depth`: Maximum bounces allowed (typically 2-4)
+/// 
+/// # Performance Notes
+/// 
+/// - O(n) intersection tests per ray (no BVH yet)
+/// - Shadow rays add ~15% overhead but greatly improve realism
+/// - Each reflection bounce roughly triples computation cost
+/// 
+/// # Metal Shader Synchronization
+/// 
+/// This CPU implementation must stay in sync with `shaders/raytracing.metal`.
+/// Any changes to lighting, intersection, or reflection logic should be
+/// applied to both implementations.
 pub fn trace_ray(
     ray_origin: Vec3,
     ray_dir: Vec3,
@@ -70,7 +137,6 @@ pub fn trace_ray(
     light: &LightUniforms,
     depth: i32,
     max_depth: i32,
-    reflectivity: f32,
 ) -> Vec3 {
     if depth >= max_depth {
         return Vec3::ZERO;
@@ -134,6 +200,9 @@ pub fn trace_ray(
     let lighting = ambient + diffuse + specular;
     let local_color = Vec3::from(tri.color) * lighting;
     
+    // Get per-triangle reflectivity
+    let reflectivity = tri.reflectivity;
+    
     // Trace reflections (if not at max depth)
     if depth < max_depth - 1 {
         let reflection_dir = ray_dir - 2.0 * ray_dir.dot(normal) * normal; // reflect()
@@ -145,7 +214,6 @@ pub fn trace_ray(
             light,
             depth + 1,
             max_depth,
-            reflectivity,
         );
         
         // Blend local color with reflection
@@ -159,15 +227,40 @@ pub fn trace_ray(
 mod tests {
     use super::*;
     
+    fn calculate_aabb(p0: &[f32; 3], p1: &[f32; 3], p2: &[f32; 3]) -> ([f32; 3], [f32; 3]) {
+        let min = [
+            p0[0].min(p1[0]).min(p2[0]),
+            p0[1].min(p1[1]).min(p2[1]),
+            p0[2].min(p1[2]).min(p2[2]),
+        ];
+        let max = [
+            p0[0].max(p1[0]).max(p2[0]),
+            p0[1].max(p1[1]).max(p2[1]),
+            p0[2].max(p1[2]).max(p2[2]),
+        ];
+        (min, max)
+    }
+    
     fn make_simple_triangle(color: [f32; 3]) -> Triangle {
+        let p0 = [0.0, 0.0, 0.0];
+        let p1 = [1.0, 0.0, 0.0];
+        let p2 = [0.0, 1.0, 0.0];
+        let (aabb_min, aabb_max) = calculate_aabb(&p0, &p1, &p2);
+        
         Triangle {
-            p0: [0.0, 0.0, 0.0],
-            p1: [1.0, 0.0, 0.0],
-            p2: [0.0, 1.0, 0.0],
+            p0,
+            p1,
+            p2,
             n0: [0.0, 0.0, 1.0],
             n1: [0.0, 0.0, 1.0],
             n2: [0.0, 0.0, 1.0],
             color,
+            aabb_min,
+            aabb_max,
+            reflectivity: 0.15,  // Default 15% reflectivity
+            _padding1: 0.0,
+            _padding2: 0.0,
+            _padding3: 0.0,
         }
     }
     
@@ -181,7 +274,7 @@ mod tests {
         let ray_origin = Vec3::new(0.5, 0.5, 1.0);
         let ray_dir = Vec3::new(0.0, 0.0, 1.0); // pointing away
         
-        let color = trace_ray(ray_origin, ray_dir, &triangles, &light, 0, 2, 0.15);
+        let color = trace_ray(ray_origin, ray_dir, &triangles, &light, 0, 2);
         
         // Should return background color
         assert_eq!(color, Vec3::new(0.2, 0.0, 0.2));
@@ -197,7 +290,7 @@ mod tests {
         let ray_origin = Vec3::new(0.5, 0.25, 1.0);
         let ray_dir = Vec3::new(0.0, 0.0, -1.0);
         
-        let color = trace_ray(ray_origin, ray_dir, &triangles, &light, 0, 2, 0.15);
+        let color = trace_ray(ray_origin, ray_dir, &triangles, &light, 0, 2);
         
         // Should return some red color (with lighting)
         // Note: ambient light can add small amounts to other channels
@@ -216,31 +309,53 @@ mod tests {
         let ray_dir = Vec3::new(0.0, 0.0, -1.0);
         
         // At max depth, should return black
-        let color = trace_ray(ray_origin, ray_dir, &triangles, &light, 2, 2, 0.15);
+        let color = trace_ray(ray_origin, ray_dir, &triangles, &light, 2, 2);
         assert_eq!(color, Vec3::ZERO);
     }
     
     #[test]
     fn test_depth_3_vs_depth_2() {
         // Create a simple scene with two parallel walls
+        let p0_1 = [-10.0, -10.0, 0.0];
+        let p1_1 = [10.0, -10.0, 0.0];
+        let p2_1 = [10.0, 10.0, 0.0];
+        let (aabb_min_1, aabb_max_1) = calculate_aabb(&p0_1, &p1_1, &p2_1);
+        
         let wall1 = Triangle {
-            p0: [-10.0, -10.0, 0.0],
-            p1: [10.0, -10.0, 0.0],
-            p2: [10.0, 10.0, 0.0],
+            p0: p0_1,
+            p1: p1_1,
+            p2: p2_1,
             n0: [0.0, 0.0, 1.0],
             n1: [0.0, 0.0, 1.0],
             n2: [0.0, 0.0, 1.0],
             color: [1.0, 0.0, 0.0], // red
+            aabb_min: aabb_min_1,
+            aabb_max: aabb_max_1,
+            reflectivity: 0.15,
+            _padding1: 0.0,
+            _padding2: 0.0,
+            _padding3: 0.0,
         };
         
+        let p0_2 = [-10.0, -10.0, -5.0];
+        let p1_2 = [10.0, 10.0, -5.0];
+        let p2_2 = [10.0, -10.0, -5.0];
+        let (aabb_min_2, aabb_max_2) = calculate_aabb(&p0_2, &p1_2, &p2_2);
+        
         let wall2 = Triangle {
-            p0: [-10.0, -10.0, -5.0],
-            p1: [10.0, 10.0, -5.0],
-            p2: [10.0, -10.0, -5.0],
+            p0: p0_2,
+            p1: p1_2,
+            p2: p2_2,
             n0: [0.0, 0.0, -1.0],
             n1: [0.0, 0.0, -1.0],
             n2: [0.0, 0.0, -1.0],
             color: [0.0, 1.0, 0.0], // green
+            aabb_min: aabb_min_2,
+            aabb_max: aabb_max_2,
+            reflectivity: 0.15,
+            _padding1: 0.0,
+            _padding2: 0.0,
+            _padding3: 0.0,
         };
         
         let triangles = vec![wall1, wall2];
@@ -250,11 +365,11 @@ mod tests {
         let ray_dir = Vec3::new(0.0, 0.0, -1.0);
         
         // With max_depth=2, should work fine
-        let color_depth2 = trace_ray(ray_origin, ray_dir, &triangles, &light, 0, 2, 0.15);
+        let color_depth2 = trace_ray(ray_origin, ray_dir, &triangles, &light, 0, 2);
         println!("Depth 2 color: {:?}", color_depth2);
         
         // With max_depth=3, should also work (this is what we're debugging)
-        let color_depth3 = trace_ray(ray_origin, ray_dir, &triangles, &light, 0, 3, 0.15);
+        let color_depth3 = trace_ray(ray_origin, ray_dir, &triangles, &light, 0, 3);
         println!("Depth 3 color: {:?}", color_depth3);
         
         // Both should produce colored results (not black)

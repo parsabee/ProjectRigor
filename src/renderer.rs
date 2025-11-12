@@ -61,6 +61,13 @@ struct RayTracingParams {
     max_depth: i32,
     background_color: [f32; 3],
     default_reflectivity: f32,
+    // Pre-calculated camera basis vectors (optimization)
+    camera_forward: [f32; 3],
+    _padding1: f32,
+    camera_right: [f32; 3],
+    _padding2: f32,
+    camera_up: [f32; 3],
+    _padding3: f32,
 }
 
 pub struct MetalRenderer {
@@ -394,7 +401,11 @@ impl MetalRenderer {
             MTLResourceOptions::StorageModeShared,
         );
         
-        // Create params buffer
+        // Create params buffer with pre-calculated camera basis
+        let camera_forward = self.camera.forward();
+        let camera_right = self.camera.right();
+        let camera_up = camera_right.cross(camera_forward); // Calculate up from right and forward
+        
         let params = RayTracingParams {
             camera_position: self.camera.position().to_array(),
             aspect_ratio: width as f32 / height as f32,
@@ -402,6 +413,12 @@ impl MetalRenderer {
             max_depth: 2,  // Configurable reflection depth
             background_color: [0.2, 0.0, 0.2],  // Dark purple
             default_reflectivity: 0.15,  // 15% reflectivity
+            camera_forward: camera_forward.to_array(),
+            _padding1: 0.0,
+            camera_right: camera_right.to_array(),
+            _padding2: 0.0,
+            camera_up: camera_up.to_array(),
+            _padding3: 0.0,
         };
         
         let params_buffer = self.device.new_buffer_with_data(
@@ -521,7 +538,11 @@ impl MetalRenderer {
             MTLResourceOptions::StorageModeShared,
         );
         
-        // Create params buffer
+        // Create params buffer with pre-calculated camera basis
+        let camera_forward = (ray_target - ray_origin).normalize();
+        let camera_right = camera_forward.cross(glam::Vec3::new(0.0, 1.0, 0.0)).normalize();
+        let camera_up = camera_right.cross(camera_forward);
+        
         let params = RayTracingParams {
             camera_position: ray_origin.to_array(),
             aspect_ratio: 1.0,
@@ -529,6 +550,12 @@ impl MetalRenderer {
             max_depth,
             background_color: [0.2, 0.0, 0.2],
             default_reflectivity: 0.15,
+            camera_forward: camera_forward.to_array(),
+            _padding1: 0.0,
+            camera_right: camera_right.to_array(),
+            _padding2: 0.0,
+            camera_up: camera_up.to_array(),
+            _padding3: 0.0,
         };
         
         let params_buffer = self.device.new_buffer_with_data(
@@ -995,25 +1022,62 @@ mod tests {
             metal::MTLResourceOptions::StorageModeShared,
         );
         
+        // Helper to calculate AABB
+        fn calc_aabb(p0: &[f32; 3], p1: &[f32; 3], p2: &[f32; 3]) -> ([f32; 3], [f32; 3]) {
+            let min = [
+                p0[0].min(p1[0]).min(p2[0]),
+                p0[1].min(p1[1]).min(p2[1]),
+                p0[2].min(p1[2]).min(p2[2]),
+            ];
+            let max = [
+                p0[0].max(p1[0]).max(p2[0]),
+                p0[1].max(p1[1]).max(p2[1]),
+                p0[2].max(p1[2]).max(p2[2]),
+            ];
+            (min, max)
+        }
+        
         // Create a simple test triangle (larger to ensure we hit it)
+        let p0_1 = [-10.0, -10.0, 0.0];
+        let p1_1 = [10.0, -10.0, 0.0];
+        let p2_1 = [10.0, 10.0, 0.0];
+        let (aabb_min_1, aabb_max_1) = calc_aabb(&p0_1, &p1_1, &p2_1);
+        
+        let p0_2 = [-10.0, -10.0, 0.0];
+        let p1_2 = [10.0, 10.0, 0.0];
+        let p2_2 = [-10.0, 10.0, 0.0];
+        let (aabb_min_2, aabb_max_2) = calc_aabb(&p0_2, &p1_2, &p2_2);
+        
         let triangles = vec![
             Triangle {
-                p0: [-10.0, -10.0, 0.0],
-                p1: [10.0, -10.0, 0.0],
-                p2: [10.0, 10.0, 0.0],
+                p0: p0_1,
+                p1: p1_1,
+                p2: p2_1,
                 n0: [0.0, 0.0, 1.0],
                 n1: [0.0, 0.0, 1.0],
                 n2: [0.0, 0.0, 1.0],
                 color: [1.0, 0.0, 0.0], // Red
+                aabb_min: aabb_min_1,
+                aabb_max: aabb_max_1,
+                reflectivity: 0.15,
+                _padding1: 0.0,
+                _padding2: 0.0,
+                _padding3: 0.0,
             },
             Triangle {
-                p0: [-10.0, -10.0, 0.0],
-                p1: [10.0, 10.0, 0.0],
-                p2: [-10.0, 10.0, 0.0],
+                p0: p0_2,
+                p1: p1_2,
+                p2: p2_2,
                 n0: [0.0, 0.0, 1.0],
                 n1: [0.0, 0.0, 1.0],
                 n2: [0.0, 0.0, 1.0],
                 color: [1.0, 0.0, 0.0], // Red
+                aabb_min: aabb_min_2,
+                aabb_max: aabb_max_2,
+                reflectivity: 0.15,
+                _padding1: 0.0,
+                _padding2: 0.0,
+                _padding3: 0.0,
             },
         ];
         
@@ -1041,7 +1105,7 @@ mod tests {
         let ray_dir = (forward + right * ndc_x * half_height * aspect + up * ndc_y * half_height).normalize();
         
         // CPU result
-        let cpu_result = trace_ray(ray_origin, ray_dir, &triangles, &light, 0, 2, 0.15);
+        let cpu_result = trace_ray(ray_origin, ray_dir, &triangles, &light, 0, 2);
         
         // Create a minimal renderer struct for testing
         struct TestRenderer {
@@ -1078,6 +1142,11 @@ mod tests {
                 metal::MTLResourceOptions::StorageModeShared,
             );
             
+            // Create params buffer with pre-calculated camera basis
+            let camera_forward = (ray_target - ray_origin).normalize();
+            let camera_right = camera_forward.cross(glam::Vec3::new(0.0, 1.0, 0.0)).normalize();
+            let camera_up = camera_right.cross(camera_forward);
+            
             let params = RayTracingParams {
                 camera_position: ray_origin.to_array(),
                 aspect_ratio: 1.0,
@@ -1085,6 +1154,12 @@ mod tests {
                 max_depth: 2,
                 background_color: [0.2, 0.0, 0.2],
                 default_reflectivity: 0.15,
+                camera_forward: camera_forward.to_array(),
+                _padding1: 0.0,
+                camera_right: camera_right.to_array(),
+                _padding2: 0.0,
+                camera_up: camera_up.to_array(),
+                _padding3: 0.0,
             };
             
             let params_buffer = test_renderer.device.new_buffer_with_data(

@@ -9,67 +9,139 @@ use glam::Vec3;
 use projectrigor::raytracer::trace_ray;
 use projectrigor::scene::{LightUniforms, Triangle};
 
+fn calculate_aabb(p0: &[f32; 3], p1: &[f32; 3], p2: &[f32; 3]) -> ([f32; 3], [f32; 3]) {
+    let min = [
+        p0[0].min(p1[0]).min(p2[0]),
+        p0[1].min(p1[1]).min(p2[1]),
+        p0[2].min(p1[2]).min(p2[2]),
+    ];
+    let max = [
+        p0[0].max(p1[0]).max(p2[0]),
+        p0[1].max(p1[1]).max(p2[1]),
+        p0[2].max(p1[2]).max(p2[2]),
+    ];
+    (min, max)
+}
+
 /// Create a simple test scene with a few triangles
 fn create_test_scene() -> Vec<Triangle> {
-    vec![
-        // Red wall (front)
-        Triangle {
-            p0: [-5.0, -5.0, 0.0],
-            p1: [5.0, -5.0, 0.0],
-            p2: [5.0, 5.0, 0.0],
-            n0: [0.0, 0.0, 1.0],
-            n1: [0.0, 0.0, 1.0],
-            n2: [0.0, 0.0, 1.0],
-            color: [1.0, 0.0, 0.0],
-        },
-        Triangle {
-            p0: [-5.0, -5.0, 0.0],
-            p1: [5.0, 5.0, 0.0],
-            p2: [-5.0, 5.0, 0.0],
-            n0: [0.0, 0.0, 1.0],
-            n1: [0.0, 0.0, 1.0],
-            n2: [0.0, 0.0, 1.0],
-            color: [1.0, 0.0, 0.0],
-        },
-        // Green wall (back)
-        Triangle {
-            p0: [-5.0, -5.0, -10.0],
-            p1: [5.0, 5.0, -10.0],
-            p2: [5.0, -5.0, -10.0],
-            n0: [0.0, 0.0, -1.0],
-            n1: [0.0, 0.0, -1.0],
-            n2: [0.0, 0.0, -1.0],
-            color: [0.0, 1.0, 0.0],
-        },
-        Triangle {
-            p0: [-5.0, -5.0, -10.0],
-            p1: [-5.0, 5.0, -10.0],
-            p2: [5.0, 5.0, -10.0],
-            n0: [0.0, 0.0, -1.0],
-            n1: [0.0, 0.0, -1.0],
-            n2: [0.0, 0.0, -1.0],
-            color: [0.0, 1.0, 0.0],
-        },
-        // Blue floor
-        Triangle {
-            p0: [-5.0, -5.0, -10.0],
-            p1: [5.0, -5.0, 0.0],
-            p2: [5.0, -5.0, -10.0],
-            n0: [0.0, 1.0, 0.0],
-            n1: [0.0, 1.0, 0.0],
-            n2: [0.0, 1.0, 0.0],
-            color: [0.0, 0.0, 1.0],
-        },
-        Triangle {
-            p0: [-5.0, -5.0, -10.0],
-            p1: [-5.0, -5.0, 0.0],
-            p2: [5.0, -5.0, 0.0],
-            n0: [0.0, 1.0, 0.0],
-            n1: [0.0, 1.0, 0.0],
-            n2: [0.0, 1.0, 0.0],
-            color: [0.0, 0.0, 1.0],
-        },
-    ]
+    let mut triangles = Vec::new();
+    
+    // Red wall (front) - triangle 1
+    let p0 = [-5.0, -5.0, 0.0];
+    let p1 = [5.0, -5.0, 0.0];
+    let p2 = [5.0, 5.0, 0.0];
+    let (aabb_min, aabb_max) = calculate_aabb(&p0, &p1, &p2);
+    triangles.push(Triangle {
+        p0, p1, p2,
+        n0: [0.0, 0.0, 1.0],
+        n1: [0.0, 0.0, 1.0],
+        n2: [0.0, 0.0, 1.0],
+        color: [1.0, 0.0, 0.0],
+        aabb_min,
+        aabb_max,
+        reflectivity: 0.15,
+        _padding1: 0.0,
+        _padding2: 0.0,
+        _padding3: 0.0,
+    });
+    
+    // Red wall (front) - triangle 2
+    let p0 = [-5.0, -5.0, 0.0];
+    let p1 = [5.0, 5.0, 0.0];
+    let p2 = [-5.0, 5.0, 0.0];
+    let (aabb_min, aabb_max) = calculate_aabb(&p0, &p1, &p2);
+    triangles.push(Triangle {
+        p0, p1, p2,
+        n0: [0.0, 0.0, 1.0],
+        n1: [0.0, 0.0, 1.0],
+        n2: [0.0, 0.0, 1.0],
+        color: [1.0, 0.0, 0.0],
+        aabb_min,
+        aabb_max,
+        reflectivity: 0.15,
+        _padding1: 0.0,
+        _padding2: 0.0,
+        _padding3: 0.0,
+    });
+    
+    // Green wall (back) - triangle 1
+    let p0 = [-5.0, -5.0, -10.0];
+    let p1 = [5.0, 5.0, -10.0];
+    let p2 = [5.0, -5.0, -10.0];
+    let (aabb_min, aabb_max) = calculate_aabb(&p0, &p1, &p2);
+    triangles.push(Triangle {
+        p0, p1, p2,
+        n0: [0.0, 0.0, -1.0],
+        n1: [0.0, 0.0, -1.0],
+        n2: [0.0, 0.0, -1.0],
+        color: [0.0, 1.0, 0.0],
+        aabb_min,
+        aabb_max,
+        reflectivity: 0.15,
+        _padding1: 0.0,
+        _padding2: 0.0,
+        _padding3: 0.0,
+    });
+    
+    // Green wall (back) - triangle 2
+    let p0 = [-5.0, -5.0, -10.0];
+    let p1 = [-5.0, 5.0, -10.0];
+    let p2 = [5.0, 5.0, -10.0];
+    let (aabb_min, aabb_max) = calculate_aabb(&p0, &p1, &p2);
+    triangles.push(Triangle {
+        p0, p1, p2,
+        n0: [0.0, 0.0, -1.0],
+        n1: [0.0, 0.0, -1.0],
+        n2: [0.0, 0.0, -1.0],
+        color: [0.0, 1.0, 0.0],
+        aabb_min,
+        aabb_max,
+        reflectivity: 0.15,
+        _padding1: 0.0,
+        _padding2: 0.0,
+        _padding3: 0.0,
+    });
+    
+    // Blue floor - triangle 1
+    let p0 = [-5.0, -5.0, -10.0];
+    let p1 = [5.0, -5.0, 0.0];
+    let p2 = [5.0, -5.0, -10.0];
+    let (aabb_min, aabb_max) = calculate_aabb(&p0, &p1, &p2);
+    triangles.push(Triangle {
+        p0, p1, p2,
+        n0: [0.0, 1.0, 0.0],
+        n1: [0.0, 1.0, 0.0],
+        n2: [0.0, 1.0, 0.0],
+        color: [0.0, 0.0, 1.0],
+        aabb_min,
+        aabb_max,
+        reflectivity: 0.15,
+        _padding1: 0.0,
+        _padding2: 0.0,
+        _padding3: 0.0,
+    });
+    
+    // Blue floor - triangle 2
+    let p0 = [-5.0, -5.0, -10.0];
+    let p1 = [-5.0, -5.0, 0.0];
+    let p2 = [5.0, -5.0, 0.0];
+    let (aabb_min, aabb_max) = calculate_aabb(&p0, &p1, &p2);
+    triangles.push(Triangle {
+        p0, p1, p2,
+        n0: [0.0, 1.0, 0.0],
+        n1: [0.0, 1.0, 0.0],
+        n2: [0.0, 1.0, 0.0],
+        color: [0.0, 0.0, 1.0],
+        aabb_min,
+        aabb_max,
+        reflectivity: 0.15,
+        _padding1: 0.0,
+        _padding2: 0.0,
+        _padding3: 0.0,
+    });
+    
+    triangles
 }
 
 #[test]
@@ -81,8 +153,8 @@ fn test_cpu_single_ray() {
     let ray_origin = Vec3::new(0.0, 0.0, 5.0);
     let ray_dir = Vec3::new(0.0, 0.0, -1.0);
     
-    let color_depth2 = trace_ray(ray_origin, ray_dir, &triangles, &light, 0, 2, 0.15);
-    let color_depth3 = trace_ray(ray_origin, ray_dir, &triangles, &light, 0, 3, 0.15);
+    let color_depth2 = trace_ray(ray_origin, ray_dir, &triangles, &light, 0, 2);
+    let color_depth3 = trace_ray(ray_origin, ray_dir, &triangles, &light, 0, 3);
     
     println!("CPU depth 2: {:?}", color_depth2);
     println!("CPU depth 3: {:?}", color_depth3);
@@ -106,9 +178,9 @@ fn test_cpu_reflection_ray() {
     // Ray at 45 degrees to hit red wall and reflect toward green
     let ray_dir = Vec3::new(0.0, 0.3, -1.0).normalize();
     
-    let color_depth1 = trace_ray(ray_origin, ray_dir, &triangles, &light, 0, 1, 0.15);
-    let color_depth2 = trace_ray(ray_origin, ray_dir, &triangles, &light, 0, 2, 0.15);
-    let color_depth3 = trace_ray(ray_origin, ray_dir, &triangles, &light, 0, 3, 0.15);
+    let color_depth1 = trace_ray(ray_origin, ray_dir, &triangles, &light, 0, 1);
+    let color_depth2 = trace_ray(ray_origin, ray_dir, &triangles, &light, 0, 2);
+    let color_depth3 = trace_ray(ray_origin, ray_dir, &triangles, &light, 0, 3);
     
     println!("Reflection - depth 1: {:?}", color_depth1);
     println!("Reflection - depth 2: {:?}", color_depth2);
@@ -130,7 +202,7 @@ fn test_cpu_max_depth_edge_cases() {
     
     // Test various max depths
     for max_depth in 1..=5 {
-        let color = trace_ray(ray_origin, ray_dir, &triangles, &light, 0, max_depth, 0.15);
+        let color = trace_ray(ray_origin, ray_dir, &triangles, &light, 0, max_depth);
         println!("Max depth {}: {:?}", max_depth, color);
         assert!(color.length() > 0.1, "Max depth {} should produce color", max_depth);
     }
@@ -169,9 +241,9 @@ fn test_gpu_vs_cpu_comparison() {
     
     // CPU ground truth
     println!("\n--- CPU Ground Truth (direct ray) ---");
-    let cpu_depth1 = trace_ray(ray_origin, ray_dir, &triangles, &light, 0, 1, 0.15);
-    let cpu_depth2 = trace_ray(ray_origin, ray_dir, &triangles, &light, 0, 2, 0.15);
-    let cpu_depth3 = trace_ray(ray_origin, ray_dir, &triangles, &light, 0, 3, 0.15);
+    let cpu_depth1 = trace_ray(ray_origin, ray_dir, &triangles, &light, 0, 1);
+    let cpu_depth2 = trace_ray(ray_origin, ray_dir, &triangles, &light, 0, 2);
+    let cpu_depth3 = trace_ray(ray_origin, ray_dir, &triangles, &light, 0, 3);
     
     println!("CPU depth 1: {:?}", cpu_depth1);
     println!("CPU depth 2: {:?}", cpu_depth2);
@@ -220,7 +292,18 @@ fn test_gpu_vs_cpu_comparison() {
             max_depth: i32,
             background_color: [f32; 3],
             default_reflectivity: f32,
+            camera_forward: [f32; 3],
+            _padding1: f32,
+            camera_right: [f32; 3],
+            _padding2: f32,
+            camera_up: [f32; 3],
+            _padding3: f32,
         }
+        
+        // Calculate camera basis
+        let camera_forward = (ray_target - ray_origin).normalize();
+        let camera_right = camera_forward.cross(Vec3::new(0.0, 1.0, 0.0)).normalize();
+        let camera_up = camera_right.cross(camera_forward);
         
         let params = RayTracingParams {
             camera_position: ray_origin.to_array(),
@@ -229,6 +312,12 @@ fn test_gpu_vs_cpu_comparison() {
             max_depth,
             background_color: [0.2, 0.0, 0.2],
             default_reflectivity: 0.15,
+            camera_forward: camera_forward.to_array(),
+            _padding1: 0.0,
+            camera_right: camera_right.to_array(),
+            _padding2: 0.0,
+            camera_up: camera_up.to_array(),
+            _padding3: 0.0,
         };
         
         let params_buffer = device.new_buffer_with_data(

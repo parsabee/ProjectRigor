@@ -96,10 +96,49 @@ impl Default for LightUniforms {
     }
 }
 
-/// Triangle data for ray tracing.
+/// Triangle geometry with material properties for ray tracing.
 ///
-/// Compact layout without padding - uses packed_float3 in Metal shader.
-/// Total size: 84 bytes (7 * 12 bytes)
+/// This struct must exactly match the Metal shader `Triangle` layout for GPU upload.
+/// Memory layout is critical - any changes must be synchronized with `shaders/raytracing.metal`.
+///
+/// # Structure (124 bytes total)
+///
+/// ## Geometry (84 bytes)
+/// - `p0, p1, p2`: Triangle vertices (3 × 12 bytes)
+/// - `n0, n1, n2`: Vertex normals for smooth shading (3 × 12 bytes)
+/// - `color`: Base material color RGB (12 bytes)
+///
+/// ## Acceleration (24 bytes)
+/// - `aabb_min`: Bounding box minimum corner (12 bytes)
+/// - `aabb_max`: Bounding box maximum corner (12 bytes)
+///
+/// ## Material (16 bytes)
+/// - `reflectivity`: Surface reflectivity 0.0 (matte) to 1.0 (mirror) (4 bytes)
+/// - `_padding1/2/3`: Alignment padding for Metal (3 × 4 bytes)
+///
+/// # Usage
+///
+/// ```rust,no_run
+/// use projectrigor::scene::Triangle;
+///
+/// let triangle = Triangle {
+///     p0: [0.0, 0.0, 0.0],
+///     p1: [1.0, 0.0, 0.0],
+///     p2: [0.0, 1.0, 0.0],
+///     n0: [0.0, 0.0, 1.0],
+///     n1: [0.0, 0.0, 1.0],
+///     n2: [0.0, 0.0, 1.0],
+///     color: [1.0, 0.0, 0.0],  // Red
+///     aabb_min: [0.0, 0.0, 0.0],
+///     aabb_max: [1.0, 1.0, 0.0],
+///     reflectivity: 0.15,  // Slightly reflective
+///     _padding1: 0.0,
+///     _padding2: 0.0,
+///     _padding3: 0.0,
+/// };
+/// ```
+///
+/// Total size: 124 bytes (aligned for Metal buffer upload)
 #[repr(C)]
 pub struct Triangle {
     pub p0: [f32; 3],
@@ -109,6 +148,12 @@ pub struct Triangle {
     pub n1: [f32; 3],
     pub n2: [f32; 3],
     pub color: [f32; 3],
+    pub aabb_min: [f32; 3],  // Bounding box min
+    pub aabb_max: [f32; 3],  // Bounding box max
+    pub reflectivity: f32,   // Per-material reflectivity (0.0 = matte, 1.0 = mirror)
+    pub _padding1: f32,
+    pub _padding2: f32,
+    pub _padding3: f32,
 }
 
 /// A scene that manages an ECS world and physics simulation.
@@ -272,6 +317,21 @@ impl Scene {
                     let n1 = normal_mat.transform_vector3(glam::Vec3::from_slice(&v1[3..6])).normalize();
                     let n2 = normal_mat.transform_vector3(glam::Vec3::from_slice(&v2[3..6])).normalize();
                     
+                    // Calculate AABB
+                    let aabb_min = [
+                        p0.x.min(p1.x).min(p2.x),
+                        p0.y.min(p1.y).min(p2.y),
+                        p0.z.min(p1.z).min(p2.z),
+                    ];
+                    let aabb_max = [
+                        p0.x.max(p1.x).max(p2.x),
+                        p0.y.max(p1.y).max(p2.y),
+                        p0.z.max(p1.z).max(p2.z),
+                    ];
+                    
+                    // Default reflectivity of 0.15 (15% reflective)
+                    let reflectivity = 0.15;
+                    
                     triangles.push(Triangle {
                         p0: p0.to_array(),
                         p1: p1.to_array(),
@@ -280,6 +340,12 @@ impl Scene {
                         n1: n1.to_array(),
                         n2: n2.to_array(),
                         color,
+                        aabb_min,
+                        aabb_max,
+                        reflectivity,
+                        _padding1: 0.0,
+                        _padding2: 0.0,
+                        _padding3: 0.0,
                     });
                 }
             }
