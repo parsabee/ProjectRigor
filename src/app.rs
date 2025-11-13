@@ -272,7 +272,7 @@ impl ApplicationHandler for App {
                     
                     // Track render time (query happens inside render)
                     self.perf.mark_start();
-                    renderer.render(&self.scene);
+                    renderer.render(&mut self.scene, &mut self.perf);
                     self.perf.mark_render();
                     
                     // End performance tracking

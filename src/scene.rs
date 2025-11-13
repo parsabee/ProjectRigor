@@ -184,6 +184,10 @@ pub struct Scene {
     pub world: World,
     /// The physics simulation world
     pub physics: PhysicsWorld,
+    
+    // Triangle data cache for ray tracing
+    triangle_cache: Vec<Triangle>,
+    cache_dirty: bool,
 }
 
 impl Scene {
@@ -200,6 +204,8 @@ impl Scene {
         Self {
             world: World::new(),
             physics: PhysicsWorld::new(),
+            triangle_cache: Vec::new(),
+            cache_dirty: true,
         }
     }
 
@@ -224,13 +230,20 @@ impl Scene {
         self.physics.step();
         
         // Update entity transforms from physics (only for dynamic entities)
+        let mut any_transform_changed = false;
         for (_entity, (transform_comp, physics_comp, _)) in self
             .world
             .query_mut::<(&mut TransformComponent, &PhysicsBodyComponent, &DynamicTag)>()
         {
             if let Some(physics_transform) = self.physics.get_transform(physics_comp.handle) {
                 transform_comp.transform = physics_transform;
+                any_transform_changed = true;
             }
+        }
+        
+        // Mark triangle cache dirty if any transform changed
+        if any_transform_changed {
+            self.cache_dirty = true;
         }
     }
 
@@ -277,18 +290,34 @@ impl Scene {
     ///
     /// # Returns
     ///
-    /// A vector of triangles in world space, ready for ray tracing.
+    /// A reference to the cached triangle data, updated only when the scene changes.
+    ///
+    /// # Performance
+    ///
+    /// This method uses a dirty-tracking cache. Triangle extraction and transformation
+    /// only happens when:
+    /// - First call (cache empty)
+    /// - After physics updates that changed entity transforms
+    /// - After entities are added/removed (future)
+    ///
+    /// Otherwise, returns cached data with zero overhead.
     ///
     /// # Example
     ///
     /// ```rust,no_run
     /// # use projectrigor::scene::Scene;
-    /// let scene = Scene::new();
+    /// let mut scene = Scene::new();
     /// let triangles = scene.get_triangle_data();
     /// // Upload triangles to GPU for ray tracing
     /// ```
-    pub fn get_triangle_data(&self) -> Vec<Triangle> {
-        let mut triangles = Vec::new();
+    pub fn get_triangle_data(&mut self) -> &[Triangle] {
+        // Return cached data if still valid
+        if !self.cache_dirty {
+            return &self.triangle_cache;
+        }
+        
+        // Cache is dirty - rebuild it
+        self.triangle_cache.clear();
         
         for (_entity, (transform_comp, render_comp)) in 
             self.world.query::<(&TransformComponent, &RenderComponent)>().iter()
@@ -332,7 +361,7 @@ impl Scene {
                     // Default reflectivity of 0.15 (15% reflective)
                     let reflectivity = 0.15;
                     
-                    triangles.push(Triangle {
+                    self.triangle_cache.push(Triangle {
                         p0: p0.to_array(),
                         p1: p1.to_array(),
                         p2: p2.to_array(),
@@ -351,7 +380,10 @@ impl Scene {
             }
         }
         
-        triangles
+        // Mark cache as clean
+        self.cache_dirty = false;
+        
+        &self.triangle_cache
     }
 
     /// Returns the position of the first dynamic entity found in the scene.

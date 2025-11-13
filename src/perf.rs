@@ -41,6 +41,15 @@ pub struct PerfTracker {
     
     // External state (passed in)
     triangle_count: u32,
+    
+    // Cumulative totals since tracker creation
+    total_allocations: u64,
+    total_bytes_uploaded: u64,
+    total_frees: u64,
+    total_bytes_freed: u64,
+    
+    // Live memory tracking (current allocated - freed)
+    current_memory_bytes: u64,
 }
 
 #[cfg(feature = "perf")]
@@ -52,6 +61,11 @@ impl PerfTracker {
             frame_start: None,
             subsystem_start: None,
             triangle_count: 0,
+            total_allocations: 0,
+            total_bytes_uploaded: 0,
+            total_frees: 0,
+            total_bytes_freed: 0,
+            current_memory_bytes: 0,
         }
     }
     
@@ -91,6 +105,16 @@ impl PerfTracker {
     pub fn record_allocation(&mut self, bytes: u64) {
         self.current.buffer_allocs += 1;
         self.current.bytes_uploaded += bytes;
+        self.total_allocations += 1;
+        self.total_bytes_uploaded += bytes;
+        self.current_memory_bytes += bytes;
+    }
+    
+    /// Record a buffer free
+    pub fn record_free(&mut self, bytes: u64) {
+        self.total_frees += 1;
+        self.total_bytes_freed += bytes;
+        self.current_memory_bytes = self.current_memory_bytes.saturating_sub(bytes);
     }
     
     /// Set triangle count for current frame
@@ -184,24 +208,37 @@ impl PerfTracker {
         
         println!("\n╔═══════════════════════════════════════════════════════╗");
         println!("║           PERFORMANCE METRICS                         ║");
-        println!("╠═══════════════════════════════════════════════════════╣");
-        println!("║  FPS:          {:<6.1} (current)                    ║", self.current_fps());
-        println!("║                {:<6.1} (avg over {} frames)         ║", self.avg_fps(), self.frames.len());
-        println!("║                                                       ║");
-        println!("║  Frame Time:   {:<6.2} ms (avg)                     ║", self.avg_frame_time().as_secs_f64() * 1000.0);
-        println!("║                {:<6.2} ms (min)                      ║", min_ft.as_secs_f64() * 1000.0);
-        println!("║                {:<6.2} ms (max)                      ║", max_ft.as_secs_f64() * 1000.0);
-        println!("║                                                       ║");
-        println!("║  Breakdown:                                           ║");
-        println!("║    Physics:    {:<6.2} ms                            ║", phys.as_secs_f64() * 1000.0);
-        println!("║    Query:      {:<6.2} ms                            ║", query.as_secs_f64() * 1000.0);
-        println!("║    Render:     {:<6.2} ms                            ║", render.as_secs_f64() * 1000.0);
-        println!("║                                                       ║");
-        println!("║  GPU:                                                 ║");
-        println!("║    Allocations: {:<6.1} per frame                    ║", allocs);
-        println!("║    Upload:      {:<6.1} KB per frame                 ║", bytes / 1024.0);
-        println!("║    Triangles:   {:<6}                                ║", self.triangle_count);
-        println!("╚═══════════════════════════════════════════════════════╝\n");
+        println!("╚═══════════════════════════════════════════════════════╝");
+        
+        println!("  FPS:          {:<6.1} (current)", self.current_fps());
+        println!("                {:<6.1} (avg over {} frames)", self.avg_fps(), self.frames.len());
+        
+        println!(" ───────────────────────────────────────────────────────");
+        println!("  Frame Time:   {:<6.2} ms (avg)", self.avg_frame_time().as_secs_f64() * 1000.0);
+        println!("                {:<6.2} ms (min)", min_ft.as_secs_f64() * 1000.0);
+        println!("                {:<6.2} ms (max)", max_ft.as_secs_f64() * 1000.0);
+        
+        println!(" ───────────────────────────────────────────────────────");
+        println!("  Breakdown:");
+        println!("    Physics:    {:<6.2} ms", phys.as_secs_f64() * 1000.0);
+        println!("    Query:      {:<6.2} ms", query.as_secs_f64() * 1000.0);
+        println!("    Render:     {:<6.2} ms", render.as_secs_f64() * 1000.0);
+        
+        println!(" ───────────────────────────────────────────────────────");
+        println!("  GPU (per frame):");
+        println!("    Allocations: {:<6.1} per frame", allocs);
+        println!("    Upload:      {:<6.1} KB per frame", bytes / 1024.0);
+        println!("    Triangles:   {:<6}", self.triangle_count);
+        println!("    Current Mem: {:<6.1} MB", self.current_memory_bytes as f64 / (1024.0 * 1024.0));
+        
+        println!(" ───────────────────────────────────────────────────────");
+        println!("  GPU (cumulative):");
+        println!("    Total Allocs: {:<6}", self.total_allocations);
+        println!("    Total Upload: {:<6.1} MB", self.total_bytes_uploaded as f64 / (1024.0 * 1024.0));
+        println!("    Total Frees:  {:<6}", self.total_frees);
+        println!("    Total Freed:  {:<6.1} MB", self.total_bytes_freed as f64 / (1024.0 * 1024.0));
+        println!("    Net Memory:   {:<6.1} MB", (self.total_bytes_uploaded as i64 - self.total_bytes_freed as i64) as f64 / (1024.0 * 1024.0));
+        println!("    Current Alloc: {:<6.1} MB\n", self.current_memory_bytes as f64 / (1024.0 * 1024.0));
     }
 }
 
@@ -209,6 +246,14 @@ impl PerfTracker {
 impl Default for PerfTracker {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(feature = "perf")]
+impl Drop for PerfTracker {
+    fn drop(&mut self) {
+        println!("\n=== Performance Summary (on drop) ===");
+        self.print_summary();
     }
 }
 
@@ -238,6 +283,9 @@ impl PerfTracker {
     
     #[inline(always)]
     pub fn record_allocation(&mut self, _bytes: u64) {}
+    
+    #[inline(always)]
+    pub fn record_free(&mut self, _bytes: u64) {}
     
     #[inline(always)]
     pub fn set_triangle_count(&mut self, _count: u32) {}
@@ -351,6 +399,80 @@ mod tests {
         let (allocs, bytes) = tracker.avg_allocations();
         assert_eq!(allocs, 2.0);
         assert_eq!(bytes, 3072.0);
+    }
+    
+    #[test]
+    fn test_multiple_frames_allocation_tracking() {
+        let mut tracker = PerfTracker::new();
+        
+        // Frame 1: 3 allocations (simulating triangle_buffer, params_buffer, count_buffer)
+        tracker.begin_frame();
+        tracker.record_allocation(48 * 1024); // triangle buffer 48KB
+        tracker.record_allocation(128);        // params buffer 128 bytes
+        tracker.record_allocation(4);          // count buffer 4 bytes
+        tracker.end_frame();
+        
+        let (allocs, bytes) = tracker.avg_allocations();
+        assert_eq!(allocs, 3.0, "First frame should have 3 allocations");
+        assert_eq!(bytes, (48 * 1024 + 128 + 4) as f64);
+        
+        // Frame 2: 0 allocations (buffer reuse)
+        tracker.begin_frame();
+        tracker.end_frame();
+        
+        let (allocs, bytes) = tracker.avg_allocations();
+        assert_eq!(allocs, 1.5, "Average should be (3 + 0) / 2 = 1.5");
+        assert_eq!(bytes, ((48 * 1024 + 132) / 2) as f64);
+        
+        // Frame 3: 0 allocations (buffer reuse)
+        tracker.begin_frame();
+        tracker.end_frame();
+        
+        let (allocs, bytes) = tracker.avg_allocations();
+        assert_eq!(allocs, 1.0, "Average should be (3 + 0 + 0) / 3 = 1.0");
+        assert_eq!(bytes, ((48 * 1024 + 132) / 3) as f64);
+    }
+    
+    #[test]
+    fn test_allocation_tracking_shows_zero_after_warmup() {
+        let mut tracker = PerfTracker::new();
+        
+        // Frame 1: Initial allocations
+        tracker.begin_frame();
+        tracker.record_allocation(1024);
+        tracker.record_allocation(2048);
+        tracker.record_allocation(512);
+        tracker.end_frame();
+        
+        // Frames 2-60: No allocations (buffer reuse)
+        for _ in 0..59 {
+            tracker.begin_frame();
+            tracker.end_frame();
+        }
+        
+        let (allocs, bytes) = tracker.avg_allocations();
+        // After 60 frames with only first frame having allocations:
+        // allocs = 3/60 = 0.05
+        assert!(allocs < 0.1, "After buffer reuse warmup, allocations should be near zero, got {}", allocs);
+        assert!(bytes < 100.0, "After buffer reuse warmup, bytes should be near zero, got {}", bytes);
+    }
+    
+    #[test]
+    fn test_continuous_allocations_show_correctly() {
+        let mut tracker = PerfTracker::new();
+        
+        // Simulate what happens WITHOUT buffer reuse - every frame has 3 allocations
+        for _ in 0..60 {
+            tracker.begin_frame();
+            tracker.record_allocation(48 * 1024); // triangle buffer
+            tracker.record_allocation(128);        // params buffer
+            tracker.record_allocation(4);          // count buffer
+            tracker.end_frame();
+        }
+        
+        let (allocs, bytes) = tracker.avg_allocations();
+        assert_eq!(allocs, 3.0, "Should show 3 allocations per frame");
+        assert_eq!(bytes, (48 * 1024 + 132) as f64, "Should show correct byte count");
     }
     
     #[test]

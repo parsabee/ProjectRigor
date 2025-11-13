@@ -81,7 +81,16 @@ pub struct MetalRenderer {
     camera: Camera,
     raytracing_pipeline: metal::ComputePipelineState,
     render_mode: crate::RenderingMode,
-    perf: PerfTracker,
+    
+    // Reusable GPU buffers for ray tracing (optimization to eliminate per-frame allocations)
+    triangle_buffer: Option<metal::Buffer>,
+    params_buffer: Option<metal::Buffer>,
+    triangle_count_buffer: Option<metal::Buffer>,
+    triangle_buffer_capacity: usize,
+    
+    // Reusable depth texture for rasterization (optimization)
+    depth_texture: Option<metal::Texture>,
+    depth_texture_size: (u64, u64), // (width, height)
 }
 
 impl MetalRenderer {
@@ -213,7 +222,12 @@ impl MetalRenderer {
             camera,
             raytracing_pipeline,
             render_mode: config.render_mode,
-            perf: PerfTracker::new(),
+            triangle_buffer: None,
+            params_buffer: None,
+            triangle_count_buffer: None,
+            triangle_buffer_capacity: 0,
+            depth_texture: None,
+            depth_texture_size: (0, 0),
         }
     }
     
@@ -249,19 +263,19 @@ impl MetalRenderer {
     ///
     /// # Arguments
     ///
-    /// * `scene` - The scene to render
-    pub fn render(&mut self, scene: &crate::scene::Scene) {
+    /// * `scene` - The scene to render (mutable for cached triangle data)
+    pub fn render(&mut self, scene: &mut crate::scene::Scene, perf: &mut PerfTracker) {
         match self.render_mode {
             crate::RenderingMode::Rasterization => {
-                self.render_rasterization(scene)
+                self.render_rasterization(scene, perf)
             },
             crate::RenderingMode::SoftwareRayTracing => {
-                self.render_software_raytracing(scene)
+                self.render_software_raytracing(scene, perf)
             },
             crate::RenderingMode::HardwareRayTracing => {
                 // TODO: Implement hardware ray tracing with Metal's native API
                 // For now, use software ray tracing as fallback
-                self.render_software_raytracing(scene)
+                self.render_software_raytracing(scene, perf)
             }
         }
     }
@@ -274,12 +288,13 @@ impl MetalRenderer {
     /// # Arguments
     ///
     /// * `scene` - The scene to render
-    fn render_rasterization(&mut self, scene: &crate::scene::Scene) {
+    /// * `perf` - Performance tracker for metrics
+    fn render_rasterization(&mut self, scene: &mut crate::scene::Scene, perf: &mut PerfTracker) {
         let render_data = scene.get_render_data();
-        self.render_with_transforms_and_colors(&render_data);
+        self.render_with_transforms_and_colors(&render_data, perf);
     }
     
-    pub fn render_with_transforms_and_colors(&mut self, render_data: &[(crate::math::Transform, [f32; 3], crate::ecs::RenderShape)]) {
+    pub fn render_with_transforms_and_colors(&mut self, render_data: &[(crate::math::Transform, [f32; 3], crate::ecs::RenderShape)], perf: &mut PerfTracker) {
         if render_data.is_empty() {
             return;
         }
@@ -303,15 +318,51 @@ impl MetalRenderer {
         color_attachment.set_clear_color(metal::MTLClearColor::new(0.1, 0.1, 0.15, 1.0));
         color_attachment.set_store_action(metal::MTLStoreAction::Store);
         
-        // Depth attachment
-        let depth_texture_descriptor = metal::TextureDescriptor::new();
-        depth_texture_descriptor.set_pixel_format(metal::MTLPixelFormat::Depth32Float);
-        depth_texture_descriptor.set_width(drawable.texture().width());
-        depth_texture_descriptor.set_height(drawable.texture().height());
-        depth_texture_descriptor.set_usage(metal::MTLTextureUsage::RenderTarget);
-        depth_texture_descriptor.set_storage_mode(metal::MTLStorageMode::Private);
+        // Reuse or create depth texture (OPTIMIZATION: eliminate per-frame allocation)
+        let width = drawable.texture().width();
+        let height = drawable.texture().height();
         
-        let depth_texture = self.layer.device().new_texture(&depth_texture_descriptor);
+        let depth_texture = if let Some(ref existing_texture) = self.depth_texture {
+            // Check if size matches - reuse if yes
+            if self.depth_texture_size == (width, height) {
+                existing_texture
+            } else {
+                // Window resized - need new texture
+                let old_bytes = (self.depth_texture_size.0 * self.depth_texture_size.1 * 4) as u64;
+                perf.record_free(old_bytes);
+                
+                let depth_texture_descriptor = metal::TextureDescriptor::new();
+                depth_texture_descriptor.set_pixel_format(metal::MTLPixelFormat::Depth32Float);
+                depth_texture_descriptor.set_width(width);
+                depth_texture_descriptor.set_height(height);
+                depth_texture_descriptor.set_usage(metal::MTLTextureUsage::RenderTarget);
+                depth_texture_descriptor.set_storage_mode(metal::MTLStorageMode::Private);
+                
+                let new_texture = self.layer.device().new_texture(&depth_texture_descriptor);
+                let new_bytes = (width * height * 4) as u64; // Depth32Float = 4 bytes per pixel
+                perf.record_allocation(new_bytes);
+                
+                self.depth_texture_size = (width, height);
+                self.depth_texture = Some(new_texture);
+                self.depth_texture.as_ref().unwrap()
+            }
+        } else {
+            // First time - create depth texture
+            let depth_texture_descriptor = metal::TextureDescriptor::new();
+            depth_texture_descriptor.set_pixel_format(metal::MTLPixelFormat::Depth32Float);
+            depth_texture_descriptor.set_width(width);
+            depth_texture_descriptor.set_height(height);
+            depth_texture_descriptor.set_usage(metal::MTLTextureUsage::RenderTarget);
+            depth_texture_descriptor.set_storage_mode(metal::MTLStorageMode::Private);
+            
+            let new_texture = self.layer.device().new_texture(&depth_texture_descriptor);
+            let bytes = (width * height * 4) as u64; // Depth32Float = 4 bytes per pixel
+            perf.record_allocation(bytes);
+            
+            self.depth_texture_size = (width, height);
+            self.depth_texture = Some(new_texture);
+            self.depth_texture.as_ref().unwrap()
+        };
         
         let depth_attachment = render_pass_descriptor.depth_attachment().unwrap();
         depth_attachment.set_texture(Some(&depth_texture));
@@ -374,13 +425,13 @@ impl MetalRenderer {
     ///
     /// # Arguments
     ///
-    /// * `scene` - The scene to render
+    /// * `scene` - The scene to render (mutable to access cached triangle data)
     ///
     /// # Performance
     ///
     /// This method uses compute shaders for parallel ray tracing on the GPU,
     /// which is significantly faster than CPU-based ray tracing.
-    pub fn render_software_raytracing(&mut self, scene: &crate::scene::Scene) {
+    pub fn render_software_raytracing(&mut self, scene: &mut crate::scene::Scene, perf: &mut PerfTracker) {
         let drawable = match self.layer.next_drawable() {
             Some(drawable) => drawable,
             None => return,
@@ -398,18 +449,46 @@ impl MetalRenderer {
         }
         
         // Track query time and triangle count
-        self.perf.set_triangle_count(triangles.len() as u32);
+        perf.set_triangle_count(triangles.len() as u32);
         
-        // Create triangle buffer
+        // Reuse or create triangle buffer (OPTIMIZATION: eliminate per-frame allocation)
         let triangle_buffer_size = (triangles.len() * std::mem::size_of::<crate::scene::Triangle>()) as u64;
-        let triangle_buffer = self.device.new_buffer_with_data(
-            triangles.as_ptr() as *const _,
-            triangle_buffer_size,
-            MTLResourceOptions::StorageModeShared,
-        );
-        self.perf.record_allocation(triangle_buffer_size);
+        let triangle_buffer = if let Some(ref existing_buffer) = self.triangle_buffer {
+            if self.triangle_buffer_capacity >= triangles.len() {
+                // Reuse existing buffer - just update contents
+                unsafe {
+                    let contents = existing_buffer.contents() as *mut crate::scene::Triangle;
+                    std::ptr::copy_nonoverlapping(triangles.as_ptr(), contents, triangles.len());
+                }
+                existing_buffer
+            } else {
+                // Need larger buffer - reallocate
+                let old_size = (self.triangle_buffer_capacity * std::mem::size_of::<crate::scene::Triangle>()) as u64;
+                perf.record_free(old_size); // Old buffer will be dropped
+                perf.record_allocation(triangle_buffer_size);
+                let new_buffer = self.device.new_buffer_with_data(
+                    triangles.as_ptr() as *const _,
+                    triangle_buffer_size,
+                    MTLResourceOptions::StorageModeShared,
+                );
+                self.triangle_buffer_capacity = triangles.len();
+                self.triangle_buffer = Some(new_buffer);
+                self.triangle_buffer.as_ref().unwrap()
+            }
+        } else {
+            // First time - create buffer
+            perf.record_allocation(triangle_buffer_size);
+            let new_buffer = self.device.new_buffer_with_data(
+                triangles.as_ptr() as *const _,
+                triangle_buffer_size,
+                MTLResourceOptions::StorageModeShared,
+            );
+            self.triangle_buffer_capacity = triangles.len();
+            self.triangle_buffer = Some(new_buffer);
+            self.triangle_buffer.as_ref().unwrap()
+        };
         
-        // Create params buffer with pre-calculated camera basis
+        // Reuse or create params buffer (OPTIMIZATION)
         let camera_forward = self.camera.forward();
         let camera_right = self.camera.right();
         let camera_up = camera_right.cross(camera_forward); // Calculate up from right and forward
@@ -429,11 +508,25 @@ impl MetalRenderer {
             _padding3: 0.0,
         };
         
-        let params_buffer = self.device.new_buffer_with_data(
-            &params as *const RayTracingParams as *const _,
-            std::mem::size_of::<RayTracingParams>() as u64,
-            MTLResourceOptions::StorageModeShared,
-        );
+        let params_buffer_size = std::mem::size_of::<RayTracingParams>() as u64;
+        let params_buffer = if let Some(ref existing_buffer) = self.params_buffer {
+            // Reuse existing buffer - just update contents
+            unsafe {
+                let contents = existing_buffer.contents() as *mut RayTracingParams;
+                std::ptr::write(contents, params);
+            }
+            existing_buffer
+        } else {
+            // First time - create buffer
+            perf.record_allocation(params_buffer_size);
+            let new_buffer = self.device.new_buffer_with_data(
+                &params as *const RayTracingParams as *const _,
+                params_buffer_size,
+                MTLResourceOptions::StorageModeShared,
+            );
+            self.params_buffer = Some(new_buffer);
+            self.params_buffer.as_ref().unwrap()
+        };
         
         // Create output texture (use BGRA to match the drawable format)
         let texture_descriptor = metal::TextureDescriptor::new();
@@ -455,15 +548,27 @@ impl MetalRenderer {
         compute_encoder.set_buffer(1, Some(&params_buffer), 0);
         compute_encoder.set_buffer(2, Some(&self.light_buffer), 0);
         
-        // Create triangle count buffer
+        // Reuse or create triangle count buffer (OPTIMIZATION)
         let triangle_count = triangles.len() as u32;
         let count_buffer_size = std::mem::size_of::<u32>() as u64;
-        let triangle_count_buffer = self.device.new_buffer_with_data(
-            &triangle_count as *const u32 as *const _,
-            count_buffer_size,
-            MTLResourceOptions::StorageModeShared,
-        );
-        self.perf.record_allocation(count_buffer_size);
+        let triangle_count_buffer = if let Some(ref existing_buffer) = self.triangle_count_buffer {
+            // Reuse existing buffer - just update contents
+            unsafe {
+                let contents = existing_buffer.contents() as *mut u32;
+                std::ptr::write(contents, triangle_count);
+            }
+            existing_buffer
+        } else {
+            // First time - create buffer
+            perf.record_allocation(count_buffer_size);
+            let new_buffer = self.device.new_buffer_with_data(
+                &triangle_count as *const u32 as *const _,
+                count_buffer_size,
+                MTLResourceOptions::StorageModeShared,
+            );
+            self.triangle_count_buffer = Some(new_buffer);
+            self.triangle_count_buffer.as_ref().unwrap()
+        };
         compute_encoder.set_buffer(3, Some(&triangle_count_buffer), 0);
         
         // Calculate thread groups
