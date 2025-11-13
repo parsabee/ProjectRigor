@@ -88,6 +88,7 @@ pub mod app;
 pub mod camera;
 pub mod ecs;
 pub mod math;
+pub mod perf;
 pub mod physics;
 pub mod raytracer;
 pub mod renderer;

@@ -12,6 +12,7 @@
 use crate::renderer::MetalRenderer;
 use crate::scene::{Scene, SceneBuilder};
 use crate::scenes::cornell_box::CornellBox;
+use crate::perf::PerfTracker;
 use crate::RenderingMode;
 use std::collections::HashSet;
 use winit::application::ApplicationHandler;
@@ -56,6 +57,7 @@ pub struct App {
     last_mouse_pos: Option<(f64, f64)>,
     mouse_sensitivity: f32,
     render_mode: RenderingMode,
+    perf: PerfTracker,
 }
 
 impl App {
@@ -108,6 +110,7 @@ impl App {
             last_mouse_pos: None,
             mouse_sensitivity: 0.005, // Radians per pixel
             render_mode,
+            perf: PerfTracker::new(),
         }
     }
 
@@ -179,6 +182,11 @@ impl ApplicationHandler for App {
                 if let winit::keyboard::PhysicalKey::Code(keycode) = event.physical_key {
                     if event.state.is_pressed() {
                         self.pressed_keys.insert(keycode);
+                        
+                        // Press 'P' to print performance summary
+                        if keycode == KeyCode::KeyP {
+                            self.perf.print_summary();
+                        }
                     } else {
                         self.pressed_keys.remove(&keycode);
                     }
@@ -223,6 +231,9 @@ impl ApplicationHandler for App {
             }
             WindowEvent::RedrawRequested => {
                 if let (Some(window), Some(renderer)) = (&self.window, &mut self.renderer) {
+                    // Begin performance tracking
+                    self.perf.begin_frame();
+                    
                     // Update camera position based on pressed keys
                     let camera = renderer.camera_mut();
                     let speed = self.camera_speed;
@@ -246,8 +257,10 @@ impl ApplicationHandler for App {
                         camera.move_up(speed);
                     }
                     
-                    // Step physics simulation and update transforms
+                    // Track physics time
+                    self.perf.mark_start();
                     self.scene.step_physics();
+                    self.perf.mark_physics();
                     
                     // Get render data from scene
                     // Debug: print first dynamic entity position every 60 frames
@@ -257,7 +270,14 @@ impl ApplicationHandler for App {
                         }
                     }
                     
+                    // Track render time (query happens inside render)
+                    self.perf.mark_start();
                     renderer.render(&self.scene);
+                    self.perf.mark_render();
+                    
+                    // End performance tracking
+                    self.perf.end_frame();
+                    
                     self.frame_count += 1;
                     window.request_redraw();
                 }

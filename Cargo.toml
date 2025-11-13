@@ -11,6 +11,14 @@ path = "src/lib.rs"
 name = "projectrigor"
 path = "src/main.rs"
 
+[features]
+default = []
+perf = []  # Enable performance tracking
+
+[profile.release-perf]
+inherits = "release"
+debug = true  # Include debug symbols for profiling
+
 [dependencies]
 winit = { version = "0.30", features = ["rwh_06"] }
 metal = "0.29"

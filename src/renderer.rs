@@ -15,6 +15,7 @@
 //! The renderer uses a forward rendering pipeline with per-pixel lighting calculations.
 
 use crate::camera::Camera;
+use crate::perf::PerfTracker;
 use cocoa::base::id as cocoa_id;
 use cocoa::foundation::NSRect;
 use core_graphics_types::geometry::CGSize;
@@ -80,6 +81,7 @@ pub struct MetalRenderer {
     camera: Camera,
     raytracing_pipeline: metal::ComputePipelineState,
     render_mode: crate::RenderingMode,
+    perf: PerfTracker,
 }
 
 impl MetalRenderer {
@@ -211,6 +213,7 @@ impl MetalRenderer {
             camera,
             raytracing_pipeline,
             render_mode: config.render_mode,
+            perf: PerfTracker::new(),
         }
     }
     
@@ -394,12 +397,17 @@ impl MetalRenderer {
             return;
         }
         
+        // Track query time and triangle count
+        self.perf.set_triangle_count(triangles.len() as u32);
+        
         // Create triangle buffer
+        let triangle_buffer_size = (triangles.len() * std::mem::size_of::<crate::scene::Triangle>()) as u64;
         let triangle_buffer = self.device.new_buffer_with_data(
             triangles.as_ptr() as *const _,
-            (triangles.len() * std::mem::size_of::<crate::scene::Triangle>()) as u64,
+            triangle_buffer_size,
             MTLResourceOptions::StorageModeShared,
         );
+        self.perf.record_allocation(triangle_buffer_size);
         
         // Create params buffer with pre-calculated camera basis
         let camera_forward = self.camera.forward();
@@ -449,11 +457,13 @@ impl MetalRenderer {
         
         // Create triangle count buffer
         let triangle_count = triangles.len() as u32;
+        let count_buffer_size = std::mem::size_of::<u32>() as u64;
         let triangle_count_buffer = self.device.new_buffer_with_data(
             &triangle_count as *const u32 as *const _,
-            std::mem::size_of::<u32>() as u64,
+            count_buffer_size,
             MTLResourceOptions::StorageModeShared,
         );
+        self.perf.record_allocation(count_buffer_size);
         compute_encoder.set_buffer(3, Some(&triangle_count_buffer), 0);
         
         // Calculate thread groups
